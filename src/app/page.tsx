@@ -25,9 +25,11 @@ export default async function HomePage({ searchParams }: PublicPageProps) {
 
       <main className="site-shell page-stack">
         <section className="page-bar">
-          <h1 className="page-title page-title--compact">{publishedState.sourceSeasonName}</h1>
+          <h1 className="page-title page-title--compact">
+            {`DELTA DRILLS - ${publishedState.sourceSeasonName}`}
+          </h1>
           <div className="entity-meta">
-            <span>Last published {formatDateTime(publishedState.lastPublishedAt)}</span>
+            <span>Last published: {formatDateTime(publishedState.lastPublishedAt)}</span>
           </div>
           {publishedState.staleNotice ? (
             <p className="notice-copy">{publishedState.staleNotice}</p>

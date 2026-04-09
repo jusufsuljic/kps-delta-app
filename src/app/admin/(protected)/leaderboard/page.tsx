@@ -23,7 +23,9 @@ export default async function AdminLeaderboardPage({
 
       <main className="site-shell page-stack">
         <section className="page-bar">
-          <h1 className="page-title page-title--compact">{publishedState.sourceSeasonName}</h1>
+          <h1 className="page-title page-title--compact">
+            {`DELTA DRILLS - ${publishedState.sourceSeasonName}`}
+          </h1>
           <div className="entity-meta">
             <span>Last published {formatDateTime(publishedState.lastPublishedAt)}</span>
           </div>

@@ -45,14 +45,7 @@ export function AppHeader({
                 </button>
               </form>
             </>
-          ) : (
-            <Link
-              href="/admin"
-              className={`nav-link ${active === "admin" ? "nav-link--active" : ""}`}
-            >
-              ADMIN
-            </Link>
-          )}
+          ) : null}
         </nav>
       </div>
     </header>
