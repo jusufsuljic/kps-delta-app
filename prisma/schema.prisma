@@ -1,0 +1,62 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Season {
+  id                String   @id @default(cuid())
+  seasonName        String
+  createdAt         DateTime @default(now())
+  endedAt           DateTime?
+  publishedAt       DateTime?
+  publishedSnapshot Json?
+  drills            Drill[]
+  entries           Entry[]
+
+  @@index([createdAt])
+  @@index([endedAt])
+}
+
+model Drill {
+  id         String   @id @default(cuid())
+  seasonId   String
+  drillName  String
+  createdAt  DateTime @default(now())
+  season     Season   @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  entries    Entry[]
+
+  @@unique([seasonId, drillName])
+  @@index([seasonId, createdAt])
+}
+
+model User {
+  id                 String   @id @default(cuid())
+  username           String
+  usernameNormalized String   @unique
+  createdAt          DateTime @default(now())
+  entries            Entry[]
+
+  @@unique([username])
+  @@index([createdAt])
+}
+
+model Entry {
+  id        String   @id @default(cuid())
+  userId    String
+  seasonId  String
+  drillId   String
+  time      Float
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  season    Season   @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  drill     Drill    @relation(fields: [drillId], references: [id], onDelete: Cascade)
+
+  @@index([seasonId, drillId])
+  @@index([seasonId, userId])
+  @@index([drillId, userId])
+  @@index([createdAt])
+}

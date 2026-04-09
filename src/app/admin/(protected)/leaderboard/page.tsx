@@ -1,27 +1,25 @@
 import { AppHeader } from "@/components/AppHeader";
 import { LeaderboardPanel } from "@/components/LeaderboardPanel";
 import { formatDateTime } from "@/lib/format";
-import { isAdminAuthenticated } from "@/lib/auth";
 import { getPublishedLeaderboardState } from "@/lib/leaderboard";
 
 export const dynamic = "force-dynamic";
 
-type PublicPageProps = {
+type AdminLeaderboardPageProps = {
   searchParams: Promise<{
     board?: string;
   }>;
 };
 
-export default async function HomePage({ searchParams }: PublicPageProps) {
+export default async function AdminLeaderboardPage({
+  searchParams,
+}: AdminLeaderboardPageProps) {
   const params = await searchParams;
-  const [authenticated, publishedState] = await Promise.all([
-    isAdminAuthenticated(),
-    getPublishedLeaderboardState(),
-  ]);
+  const publishedState = await getPublishedLeaderboardState();
 
   return (
     <div className="site-root">
-      <AppHeader authenticated={authenticated} active="leaderboard" />
+      <AppHeader authenticated active="leaderboard" leaderboardHref="/admin/leaderboard" />
 
       <main className="site-shell page-stack">
         <section className="page-bar">
@@ -37,7 +35,7 @@ export default async function HomePage({ searchParams }: PublicPageProps) {
         <LeaderboardPanel
           snapshot={publishedState.snapshot}
           activeBoardKey={params.board}
-          path="/"
+          path="/admin/leaderboard"
           pendingPublication={publishedState.pendingPublication}
         />
       </main>
