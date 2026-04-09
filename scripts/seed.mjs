@@ -168,13 +168,40 @@ async function main() {
   }
 
   const users = new Map();
-  for (const username of [
+  const baseUsernames = [
     "Amar Kovac",
     "Nina Santic",
     "Tarik Basic",
     "Lejla Zec",
     "Marko Cavar",
-  ]) {
+  ];
+
+  const extraUsernames = [
+    "Adnan Hasic",
+    "Aida Mahmutovic",
+    "Alem Bekic",
+    "Amna Delic",
+    "Andrej Saric",
+    "Anes Hadzic",
+    "Armin Music",
+    "Benjamin Smajic",
+    "Denis Kabil",
+    "Dino Alic",
+    "Ema Causevic",
+    "Faris Cehajic",
+    "Hana Softic",
+    "Harun Karamuja",
+    "Iman Dzaferovic",
+    "Ismar Hasic",
+    "Jasmin Koso",
+    "Kerim Begic",
+    "Lana Mujanovic",
+    "Mahir Tiro",
+  ];
+
+  const allUsernames = [...baseUsernames, ...extraUsernames];
+
+  for (const username of allUsernames) {
     const normalizedUsername = normalizeUsername(username);
     const created = await prisma.user.create({
       data: {
@@ -204,6 +231,20 @@ async function main() {
     ["Marko Cavar", "Delta Sprint", [5.31]],
     ["Marko Cavar", "3x3", [6.41]],
   ];
+
+  extraUsernames.forEach((username, index) => {
+    const billBase = 3.92 + index * 0.07;
+    const sprintBase = 5.22 + index * 0.08;
+    const threeByThreeBase = 6.01 + index * 0.09;
+
+    attempts.push([username, "Bill Drill", [Number(billBase.toFixed(2)), Number((billBase - 0.09).toFixed(2))]]);
+    attempts.push([username, "Delta Sprint", [Number(sprintBase.toFixed(2))]]);
+    attempts.push([
+      username,
+      "3x3",
+      [Number(threeByThreeBase.toFixed(2)), Number((threeByThreeBase - 0.11).toFixed(2))],
+    ]);
+  });
 
   const createdEntries = [];
   let offset = 0;

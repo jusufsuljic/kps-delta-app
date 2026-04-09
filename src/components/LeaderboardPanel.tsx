@@ -11,6 +11,7 @@ type LeaderboardPanelProps = {
   title?: string;
   subtitle?: string;
   pendingPublication?: boolean;
+  hideOverall?: boolean;
 };
 
 function getBoardHref(path: string, boardKey: string) {
@@ -42,8 +43,11 @@ export function LeaderboardPanel({
   title,
   subtitle,
   pendingPublication = false,
+  hideOverall = false,
 }: LeaderboardPanelProps) {
-  const boards = snapshot?.boards ?? [];
+  const boards = (snapshot?.boards ?? []).filter((board) =>
+    hideOverall ? board.scope !== "overall" : true,
+  );
   const activeBoard = boards.find((board) => board.key === activeBoardKey) ?? boards[0] ?? null;
 
   return (

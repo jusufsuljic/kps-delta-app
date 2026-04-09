@@ -41,6 +41,7 @@ export default async function HomePage({ searchParams }: PublicPageProps) {
           activeBoardKey={params.board}
           path="/"
           pendingPublication={publishedState.pendingPublication}
+          hideOverall
         />
       </main>
     </div>
