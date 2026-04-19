@@ -11,8 +11,20 @@ function createPrismaClient() {
     throw new Error("DATABASE_URL is not configured.");
   }
 
+  const configuredPoolMax = Number.parseInt(process.env.DATABASE_POOL_MAX ?? "", 10);
+  const poolMax = Number.isFinite(configuredPoolMax)
+    ? Math.max(configuredPoolMax, 1)
+    : process.env.NODE_ENV === "production"
+      ? 1
+      : 3;
+
   return new PrismaClient({
-    adapter: new PrismaPg(connectionString),
+    adapter: new PrismaPg({
+      connectionString,
+      max: poolMax,
+      idleTimeoutMillis: 10_000,
+      connectionTimeoutMillis: 10_000,
+    }),
     log: process.env.NODE_ENV === "development" ? ["warn", "error"] : ["error"],
   });
 }
