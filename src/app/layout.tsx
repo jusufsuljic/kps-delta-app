@@ -15,7 +15,8 @@ export const metadata: Metadata = {
   icons: {
     icon: [
       { url: "/favicon.ico", sizes: "any" },
-      { url: "/delta_logo.svg", type: "image/svg+xml" },
+      { url: "/favicon-32x32.ico", sizes: "32x32", type: "image/x-icon" },
+      { url: "/favicon-16x16.ico", sizes: "16x16", type: "image/x-icon" },
     ],
   },
 };

@@ -6,10 +6,27 @@ datasource db {
   provider = "postgresql"
 }
 
+enum UserRole {
+  SHOOTER
+  ADMIN
+}
+
+enum SetupCodePurpose {
+  ONBOARDING
+  PASSWORD_RESET
+}
+
+enum PasswordResetRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  COMPLETED
+}
+
 model Season {
-  id                String   @id @default(cuid())
+  id                String    @id @default(cuid())
   seasonName        String
-  createdAt         DateTime @default(now())
+  createdAt         DateTime  @default(now())
   endedAt           DateTime?
   publishedAt       DateTime?
   publishedSnapshot Json?
@@ -21,26 +38,35 @@ model Season {
 }
 
 model Drill {
-  id         String   @id @default(cuid())
-  seasonId   String
-  drillName  String
-  createdAt  DateTime @default(now())
-  season     Season   @relation(fields: [seasonId], references: [id], onDelete: Cascade)
-  entries    Entry[]
+  id        String   @id @default(cuid())
+  seasonId  String
+  drillName String
+  createdAt DateTime @default(now())
+  season    Season   @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  entries   Entry[]
 
   @@unique([seasonId, drillName])
   @@index([seasonId, createdAt])
 }
 
 model User {
-  id                 String   @id @default(cuid())
-  username           String
-  usernameNormalized String   @unique
-  createdAt          DateTime @default(now())
-  entries            Entry[]
+  id                            String                 @id @default(cuid())
+  username                      String
+  usernameNormalized            String                 @unique
+  role                          UserRole               @default(SHOOTER)
+  passwordHash                  String?
+  passwordUpdatedAt             DateTime               @default(now())
+  mustChangePassword            Boolean                @default(false)
+  createdAt                     DateTime               @default(now())
+  entries                       Entry[]
+  setupCodes                    SetupCode[]            @relation("SetupCodesForUser")
+  issuedSetupCodes              SetupCode[]            @relation("SetupCodesIssuedByUser")
+  passwordResetRequests         PasswordResetRequest[] @relation("PasswordResetRequestsForUser")
+  reviewedPasswordResetRequests PasswordResetRequest[] @relation("PasswordResetRequestsReviewedByUser")
 
   @@unique([username])
   @@index([createdAt])
+  @@index([role, createdAt])
 }
 
 model Entry {
@@ -59,4 +85,43 @@ model Entry {
   @@index([seasonId, userId])
   @@index([drillId, userId])
   @@index([createdAt])
+}
+
+model SetupCode {
+  id                     String                @id @default(cuid())
+  userId                 String
+  issuedByUserId         String?
+  passwordResetRequestId String?               @unique
+  purpose                SetupCodePurpose
+  codeHash               String                @unique
+  codeSuffix             String
+  createdAt              DateTime              @default(now())
+  expiresAt              DateTime
+  usedAt                 DateTime?
+  revokedAt              DateTime?
+  user                   User                  @relation("SetupCodesForUser", fields: [userId], references: [id], onDelete: Cascade)
+  issuedBy               User?                 @relation("SetupCodesIssuedByUser", fields: [issuedByUserId], references: [id], onDelete: SetNull)
+  passwordResetRequest   PasswordResetRequest? @relation("PasswordResetRequestSetupCode", fields: [passwordResetRequestId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([userId, expiresAt])
+  @@index([usedAt])
+  @@index([revokedAt])
+}
+
+model PasswordResetRequest {
+  id               String                     @id @default(cuid())
+  userId           String
+  status           PasswordResetRequestStatus @default(PENDING)
+  reviewerNote     String?
+  createdAt        DateTime                   @default(now())
+  reviewedAt       DateTime?
+  completedAt      DateTime?
+  reviewedByUserId String?
+  user             User                       @relation("PasswordResetRequestsForUser", fields: [userId], references: [id], onDelete: Cascade)
+  reviewedBy       User?                      @relation("PasswordResetRequestsReviewedByUser", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  setupCode        SetupCode?                 @relation("PasswordResetRequestSetupCode")
+
+  @@index([userId, status, createdAt])
+  @@index([status, createdAt])
 }

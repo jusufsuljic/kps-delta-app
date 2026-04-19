@@ -1,138 +1,282 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { UserRole } from "@prisma/client";
 
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import NextAuth, { type NextAuthResult, type Session } from "next-auth";
+import Credentials from "next-auth/providers/credentials";
 
-const ADMIN_SESSION_COOKIE = "kps_delta_admin_session";
-const SESSION_MAX_AGE_SECONDS = 60 * 60 * 12;
+import {
+  authenticateWithCredentials,
+  buildSessionUser,
+  getCurrentUserRecord,
+  isAdminRole,
+  type CurrentAuthUser,
+} from "@/lib/auth-backend";
 
-type SessionPayload = {
+const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
+
+type SessionUserFields = {
+  id: string;
   username: string;
-  expiresAt: number;
+  role: UserRole;
+  mustChangePassword: boolean;
+  passwordUpdatedAt: string;
 };
 
-function getEnv(name: string) {
-  return process.env[name]?.trim() ?? "";
+function isUserRole(value: unknown): value is UserRole {
+  return value === UserRole.ADMIN || value === UserRole.SHOOTER;
 }
 
-function getAuthSecret() {
-  return getEnv("AUTH_SECRET");
-}
-
-function encodePayload(payload: SessionPayload) {
-  return Buffer.from(JSON.stringify(payload)).toString("base64url");
-}
-
-function decodePayload(encoded: string) {
-  try {
-    return JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) as SessionPayload;
-  } catch {
-    return null;
-  }
-}
-
-function signValue(value: string) {
-  return createHmac("sha256", getAuthSecret()).update(value).digest("base64url");
-}
-
-function safeEqual(left: string, right: string) {
-  const leftBuffer = Buffer.from(left);
-  const rightBuffer = Buffer.from(right);
-
-  if (leftBuffer.length !== rightBuffer.length) {
-    return false;
-  }
-
-  return timingSafeEqual(leftBuffer, rightBuffer);
-}
-
-function createSessionToken(username: string) {
-  const payload = encodePayload({
-    username,
-    expiresAt: Date.now() + SESSION_MAX_AGE_SECONDS * 1000,
-  });
-
-  const signature = signValue(payload);
-  return `${payload}.${signature}`;
-}
-
-function readSessionToken(token: string | undefined) {
-  if (!token || !getAuthSecret()) {
+function readSessionUser(session: Session | null): SessionUserFields | null {
+  const user = session?.user as Partial<SessionUserFields> | undefined;
+  if (!user) {
     return null;
   }
 
-  const [payloadPart, signaturePart] = token.split(".");
-  if (!payloadPart || !signaturePart) {
+  if (
+    typeof user.id !== "string" ||
+    typeof user.username !== "string" ||
+    !isUserRole(user.role) ||
+    typeof user.mustChangePassword !== "boolean" ||
+    typeof user.passwordUpdatedAt !== "string"
+  ) {
     return null;
   }
 
-  const expectedSignature = signValue(payloadPart);
-  if (!safeEqual(signaturePart, expectedSignature)) {
-    return null;
-  }
-
-  const payload = decodePayload(payloadPart);
-  if (!payload || payload.expiresAt <= Date.now()) {
-    return null;
-  }
-
-  if (!safeEqual(payload.username, getEnv("ADMIN_USERNAME"))) {
-    return null;
-  }
-
-  return payload;
+  return {
+    id: user.id,
+    username: user.username,
+    role: user.role,
+    mustChangePassword: user.mustChangePassword,
+    passwordUpdatedAt: user.passwordUpdatedAt,
+  };
 }
 
-export async function verifyAdminCredentials(username: string, password: string) {
-  const adminUsername = getEnv("ADMIN_USERNAME");
-  const adminPassword = getEnv("ADMIN_PASSWORD");
-
-  if (!adminUsername || !adminPassword || !getAuthSecret()) {
-    return false;
-  }
-
-  return safeEqual(username, adminUsername) && safeEqual(password, adminPassword);
-}
-
-export async function createAdminSession() {
-  const token = createSessionToken(getEnv("ADMIN_USERNAME"));
-  const cookieStore = await cookies();
-
-  cookieStore.set(ADMIN_SESSION_COOKIE, token, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
+const authResult = NextAuth({
+  trustHost: true,
+  secret: process.env.AUTH_SECRET,
+  session: {
+    strategy: "jwt",
     maxAge: SESSION_MAX_AGE_SECONDS,
-  });
+  },
+  providers: [
+    Credentials({
+      credentials: {
+        username: { label: "Username", type: "text" },
+        password: { label: "Password", type: "password" },
+        portal: { label: "Portal", type: "text" },
+      },
+      async authorize(credentials) {
+        const username =
+          typeof credentials?.username === "string" ? credentials.username : "";
+        const password =
+          typeof credentials?.password === "string" ? credentials.password : "";
+        const portal = credentials?.portal === "admin" ? "admin" : "any";
+
+        const user = await authenticateWithCredentials({
+          username,
+          password,
+          portal,
+        });
+
+        if (!user) {
+          return null;
+        }
+
+        return {
+          name: user.username,
+          ...buildSessionUser(user),
+        };
+      },
+    }),
+  ],
+  callbacks: {
+    async jwt({ token, user, trigger, session }) {
+      if (user) {
+        const authUser = user as Partial<
+          SessionUserFields & {
+            name?: string | null;
+          }
+        >;
+
+        token.sub = authUser.id ?? token.sub;
+        token.name = authUser.username ?? authUser.name ?? token.name;
+        token.username = authUser.username;
+        token.role = authUser.role;
+        token.mustChangePassword = authUser.mustChangePassword;
+        token.passwordUpdatedAt = authUser.passwordUpdatedAt;
+      }
+
+      if (trigger === "update" && session?.user) {
+        const updatedUser = session.user as Partial<SessionUserFields>;
+
+        if (typeof updatedUser.username === "string") {
+          token.name = updatedUser.username;
+          token.username = updatedUser.username;
+        }
+
+        if (isUserRole(updatedUser.role)) {
+          token.role = updatedUser.role;
+        }
+
+        if (typeof updatedUser.mustChangePassword === "boolean") {
+          token.mustChangePassword = updatedUser.mustChangePassword;
+        }
+
+        if (typeof updatedUser.passwordUpdatedAt === "string") {
+          token.passwordUpdatedAt = updatedUser.passwordUpdatedAt;
+        }
+      }
+
+      return token;
+    },
+    async session({ session, token }) {
+      if (!session.user || typeof token.sub !== "string") {
+        return session;
+      }
+
+      const sessionUser = session.user as Session["user"] & Partial<SessionUserFields>;
+      sessionUser.id = token.sub;
+      sessionUser.name = typeof token.username === "string" ? token.username : sessionUser.name;
+      sessionUser.username =
+        typeof token.username === "string" ? token.username : sessionUser.username ?? "";
+      sessionUser.role = isUserRole(token.role) ? token.role : UserRole.SHOOTER;
+      sessionUser.mustChangePassword = Boolean(token.mustChangePassword);
+      sessionUser.passwordUpdatedAt =
+        typeof token.passwordUpdatedAt === "string" ? token.passwordUpdatedAt : "";
+
+      return session;
+    },
+  },
+});
+
+export const handlers: NextAuthResult["handlers"] = authResult.handlers;
+export const auth: NextAuthResult["auth"] = authResult.auth;
+export const signIn: NextAuthResult["signIn"] = authResult.signIn;
+export const signOut: NextAuthResult["signOut"] = authResult.signOut;
+export const unstable_update: NextAuthResult["unstable_update"] =
+  authResult.unstable_update;
+
+export async function currentUser() {
+  const sessionUser = readSessionUser(await auth());
+  if (!sessionUser) {
+    return null;
+  }
+
+  const user = await getCurrentUserRecord(sessionUser.id);
+  if (!user) {
+    return null;
+  }
+
+  const sessionPasswordUpdatedAt = Date.parse(sessionUser.passwordUpdatedAt);
+  if (!Number.isFinite(sessionPasswordUpdatedAt)) {
+    return null;
+  }
+
+  if (user.passwordUpdatedAt.getTime() > sessionPasswordUpdatedAt) {
+    return null;
+  }
+
+  return user;
 }
 
-export async function clearAdminSession() {
-  const cookieStore = await cookies();
-  cookieStore.set(ADMIN_SESSION_COOKIE, "", {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: 0,
+export async function requireUser(options?: {
+  redirectTo?: string;
+  allowMustChangePassword?: boolean;
+}) {
+  const user = await currentUser();
+  if (!user) {
+    redirect(options?.redirectTo ?? "/login");
+  }
+
+  if (!options?.allowMustChangePassword && user.mustChangePassword) {
+    redirect("/change-password?mode=forced");
+  }
+
+  return user;
+}
+
+export async function requireAdmin(options?: {
+  redirectTo?: string;
+  allowMustChangePassword?: boolean;
+  forbiddenRedirectTo?: string;
+}) {
+  const user = await requireUser({
+    redirectTo: options?.redirectTo ?? "/login?mode=admin",
+    allowMustChangePassword: options?.allowMustChangePassword,
   });
+
+  if (!isAdminRole(user.role)) {
+    redirect(options?.forbiddenRedirectTo ?? "/");
+  }
+
+  return user;
+}
+
+export async function requireShooter(options?: {
+  redirectTo?: string;
+  allowMustChangePassword?: boolean;
+  forbiddenRedirectTo?: string;
+}) {
+  const user = await requireUser({
+    redirectTo: options?.redirectTo ?? "/login",
+    allowMustChangePassword: options?.allowMustChangePassword,
+  });
+
+  if (user.role !== UserRole.SHOOTER) {
+    redirect(options?.forbiddenRedirectTo ?? "/admin/dashboard");
+  }
+
+  return user;
 }
 
 export async function getAdminSession() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(ADMIN_SESSION_COOKIE)?.value;
-  return readSessionToken(token);
+  const user = await currentUser();
+  return user && isAdminRole(user.role) ? user : null;
+}
+
+export async function getShooterSession() {
+  const user = await currentUser();
+  return user && user.role === UserRole.SHOOTER ? user : null;
+}
+
+export async function getCurrentShooter() {
+  return getShooterSession();
 }
 
 export async function isAdminAuthenticated() {
   return Boolean(await getAdminSession());
 }
 
+export async function isShooterAuthenticated() {
+  return Boolean(await getShooterSession());
+}
+
 export async function requireAdminSession() {
-  const session = await getAdminSession();
-  if (!session) {
-    redirect("/admin");
+  return requireAdmin();
+}
+
+export async function requireShooterSession() {
+  return requireShooter();
+}
+
+export async function refreshCurrentUserSession(user: CurrentAuthUser) {
+  const session = await auth();
+  if (!session?.user) {
+    return null;
   }
 
-  return session;
+  return unstable_update({
+    ...session,
+    user: {
+      ...session.user,
+      id: user.id,
+      name: user.username,
+      username: user.username,
+      role: user.role,
+      mustChangePassword: user.mustChangePassword,
+      passwordUpdatedAt: user.passwordUpdatedAt.toISOString(),
+    } as Session["user"],
+  });
 }
+
+export type AuthenticatedUser = CurrentAuthUser;

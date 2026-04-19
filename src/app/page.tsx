@@ -1,7 +1,7 @@
-import { AppHeader } from "@/components/AppHeader";
 import { LeaderboardPanel } from "@/components/LeaderboardPanel";
+import { ShooterHeader } from "@/components/ShooterHeader";
 import { formatDateTime } from "@/lib/format";
-import { isAdminAuthenticated } from "@/lib/auth";
+import { isAdminAuthenticated, isShooterAuthenticated } from "@/lib/auth";
 import { getPublishedLeaderboardState } from "@/lib/leaderboard";
 
 export const dynamic = "force-dynamic";
@@ -14,14 +14,19 @@ type PublicPageProps = {
 
 export default async function HomePage({ searchParams }: PublicPageProps) {
   const params = await searchParams;
-  const [authenticated, publishedState] = await Promise.all([
+  const [shooterAuthenticated, adminAuthenticated, publishedState] = await Promise.all([
+    isShooterAuthenticated(),
     isAdminAuthenticated(),
     getPublishedLeaderboardState(),
   ]);
 
   return (
     <div className="site-root">
-      <AppHeader authenticated={authenticated} active="leaderboard" />
+      <ShooterHeader
+        authenticated={shooterAuthenticated}
+        adminAuthenticated={adminAuthenticated}
+        active="leaderboard"
+      />
 
       <main className="site-shell page-stack">
         <section className="page-bar">

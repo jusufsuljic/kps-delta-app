@@ -1,7 +1,10 @@
 import "dotenv/config";
 
+import { randomBytes, scrypt as scryptCallback } from "node:crypto";
+import { promisify } from "node:util";
+
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, UserRole } from "@prisma/client";
 
 function normalizeUsername(value) {
   return value.trim().replace(/\s+/g, " ");
@@ -27,6 +30,37 @@ function getAvatarHue(seed) {
   }
 
   return hash;
+}
+
+const scrypt = promisify(scryptCallback);
+const DEFAULT_ADMIN_USERNAME = process.env.SEED_ADMIN_USERNAME || "admin";
+const DEFAULT_ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD || "change-me";
+const DEFAULT_USER_PASSWORD = process.env.SEED_USER_PASSWORD || "delta1234";
+const SHOOTER_PASSWORD_MODE =
+  process.env.SEED_SHOOTER_PASSWORD_MODE === "setup-pending" ? "setup-pending" : "preset";
+const ATTEMPTS_PER_DRILL = 5;
+const DRILL_DEFINITIONS = [
+  { name: "Bill Drill", base: 3.52, userStep: 0.065 },
+  { name: "Delta Sprint", base: 5.08, userStep: 0.082 },
+  { name: "3x3", base: 5.84, userStep: 0.091 },
+  { name: "Failure To Stop", base: 4.46, userStep: 0.074 },
+  { name: "Box Flow", base: 6.14, userStep: 0.096 },
+  { name: "Strong Hand Only", base: 4.92, userStep: 0.079 },
+  { name: "Transition Ladder", base: 6.46, userStep: 0.101 },
+];
+const ATTEMPT_OFFSETS = [0.24, 0.16, 0.18, 0.09, 0.05];
+
+async function hashPassword(password) {
+  const salt = randomBytes(16).toString("base64url");
+  const derivedKey = await scrypt(password, salt, 64, {
+    N: 16384,
+    r: 8,
+    p: 1,
+  });
+
+  return ["scrypt", "16384", "8", "1", salt, Buffer.from(derivedKey).toString("base64url")].join(
+    "$",
+  );
 }
 
 function buildSnapshot(season, drills, entryRows, publishedAt) {
@@ -131,6 +165,22 @@ function buildSnapshot(season, drills, entryRows, publishedAt) {
   };
 }
 
+function roundTime(value) {
+  return Math.round(value * 1000) / 1000;
+}
+
+function buildAttemptTimes(userIndex, drillIndex, drillDefinition) {
+  const userTierOffset = userIndex * drillDefinition.userStep;
+  const consistencyOffset = (userIndex % 4) * 0.014;
+
+  return ATTEMPT_OFFSETS.map((attemptOffset, attemptIndex) => {
+    const waveOffset = ((userIndex * 3 + drillIndex * 2 + attemptIndex) % 5) * 0.012;
+    return roundTime(
+      drillDefinition.base + userTierOffset + consistencyOffset + attemptOffset + waveOffset,
+    );
+  });
+}
+
 const connectionString = process.env.DATABASE_URL;
 
 if (!connectionString) {
@@ -143,6 +193,12 @@ const prisma = new PrismaClient({
 
 async function main() {
   console.log("Resetting leaderboard data...");
+  console.log("Seeding a local admin account from SEED_ADMIN_USERNAME/SEED_ADMIN_PASSWORD.");
+  console.log(
+    SHOOTER_PASSWORD_MODE === "setup-pending"
+      ? "Seeding shooters without passwords so admin can onboard them through the app."
+      : "Seeding all users with a local password from SEED_USER_PASSWORD or delta1234.",
+  );
 
   await prisma.entry.deleteMany();
   await prisma.drill.deleteMany();
@@ -156,18 +212,33 @@ async function main() {
   });
 
   const drills = [];
-  for (const drillName of ["Bill Drill", "Delta Sprint", "3x3"]) {
+  for (const drillDefinition of DRILL_DEFINITIONS) {
     drills.push(
       await prisma.drill.create({
         data: {
           seasonId: season.id,
-          drillName,
+          drillName: drillDefinition.name,
         },
       }),
     );
   }
 
   const users = new Map();
+  const adminPasswordHash = await hashPassword(DEFAULT_ADMIN_PASSWORD);
+  const shooterPasswordHash =
+    SHOOTER_PASSWORD_MODE === "preset" ? await hashPassword(DEFAULT_USER_PASSWORD) : null;
+
+  await prisma.user.create({
+    data: {
+      username: normalizeUsername(DEFAULT_ADMIN_USERNAME),
+      usernameNormalized: normalizeUsernameKey(normalizeUsername(DEFAULT_ADMIN_USERNAME)),
+      role: UserRole.ADMIN,
+      passwordHash: adminPasswordHash,
+      passwordUpdatedAt: new Date(),
+      mustChangePassword: false,
+    },
+  });
+
   const baseUsernames = [
     "Amar Kovac",
     "Nina Santic",
@@ -204,46 +275,37 @@ async function main() {
   for (const username of allUsernames) {
     const normalizedUsername = normalizeUsername(username);
     const created = await prisma.user.create({
-      data: {
-        username: normalizedUsername,
-        usernameNormalized: normalizeUsernameKey(normalizedUsername),
-      },
+      data:
+        SHOOTER_PASSWORD_MODE === "preset"
+          ? {
+              username: normalizedUsername,
+              usernameNormalized: normalizeUsernameKey(normalizedUsername),
+              role: UserRole.SHOOTER,
+              passwordHash: shooterPasswordHash,
+              passwordUpdatedAt: new Date(),
+              mustChangePassword: false,
+            }
+          : {
+              username: normalizedUsername,
+              usernameNormalized: normalizeUsernameKey(normalizedUsername),
+              role: UserRole.SHOOTER,
+            },
     });
     users.set(normalizedUsername, created);
   }
 
   const publishedAt = new Date();
-  const baseTime = publishedAt.getTime() - 1000 * 60 * 60;
+  const baseTime = publishedAt.getTime() - 1000 * 60 * 60 * 24 * 9;
+  const attempts = [];
 
-  const attempts = [
-    ["Amar Kovac", "Bill Drill", [3.82, 3.66]],
-    ["Amar Kovac", "Delta Sprint", [5.45]],
-    ["Amar Kovac", "3x3", [6.12]],
-    ["Nina Santic", "Bill Drill", [3.91]],
-    ["Nina Santic", "Delta Sprint", [5.21, 5.08]],
-    ["Nina Santic", "3x3", [5.88]],
-    ["Tarik Basic", "Bill Drill", [4.05]],
-    ["Tarik Basic", "Delta Sprint", [5.72]],
-    ["Tarik Basic", "3x3", [6.34, 6.08]],
-    ["Lejla Zec", "Bill Drill", [4.11]],
-    ["Lejla Zec", "Delta Sprint", [5.66]],
-    ["Marko Cavar", "Bill Drill", [3.76]],
-    ["Marko Cavar", "Delta Sprint", [5.31]],
-    ["Marko Cavar", "3x3", [6.41]],
-  ];
-
-  extraUsernames.forEach((username, index) => {
-    const billBase = 3.92 + index * 0.07;
-    const sprintBase = 5.22 + index * 0.08;
-    const threeByThreeBase = 6.01 + index * 0.09;
-
-    attempts.push([username, "Bill Drill", [Number(billBase.toFixed(2)), Number((billBase - 0.09).toFixed(2))]]);
-    attempts.push([username, "Delta Sprint", [Number(sprintBase.toFixed(2))]]);
-    attempts.push([
-      username,
-      "3x3",
-      [Number(threeByThreeBase.toFixed(2)), Number((threeByThreeBase - 0.11).toFixed(2))],
-    ]);
+  allUsernames.forEach((username, userIndex) => {
+    DRILL_DEFINITIONS.forEach((drillDefinition, drillIndex) => {
+      attempts.push([
+        username,
+        drillDefinition.name,
+        buildAttemptTimes(userIndex, drillIndex, drillDefinition),
+      ]);
+    });
   });
 
   const createdEntries = [];
@@ -287,7 +349,10 @@ async function main() {
   console.log("Seed complete.");
   console.log("Season:", season.seasonName);
   console.log("Drills:", drills.map((drill) => drill.drillName).join(", "));
+  console.log("Admin:", DEFAULT_ADMIN_USERNAME);
   console.log("Users:", users.size);
+  console.log("Shooter auth state:", SHOOTER_PASSWORD_MODE === "preset" ? "password-ready" : "setup-pending");
+  console.log("Attempts per drill per user:", ATTEMPTS_PER_DRILL);
   console.log("Entries:", createdEntries.length);
 }
 

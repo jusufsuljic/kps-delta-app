@@ -1,5 +1,7 @@
 "use server";
 
+import { UserRole } from "@prisma/client";
+
 import { revalidatePath } from "next/cache";
 
 import { requireAdminSession } from "@/lib/auth";
@@ -15,16 +17,22 @@ import {
   normalizeUsernameKey,
   parseTimeSeconds,
   readRequiredId,
+  readOptionalPassword,
   validateDrillName,
   validateSeasonName,
+  validatePassword,
   validateUsername,
 } from "@/lib/validators";
+import { hashPassword } from "@/lib/password";
 
 function revalidateApp() {
   revalidatePath("/");
   revalidatePath("/admin");
   revalidatePath("/admin/dashboard");
   revalidatePath("/admin/leaderboard");
+  revalidatePath("/login");
+  revalidatePath("/profile");
+  revalidatePath("/setup");
 }
 
 async function getActiveSeason() {
@@ -50,15 +58,26 @@ async function findOrCreateUser(usernameInput: string) {
     data: {
       username,
       usernameNormalized,
+      role: UserRole.SHOOTER,
     },
   });
+}
+
+function readUserRole(value: FormDataEntryValue | null | undefined) {
+  return value === UserRole.ADMIN ? UserRole.ADMIN : UserRole.SHOOTER;
 }
 
 export async function createUserAction(formData: FormData) {
   await requireAdminSession();
 
   const username = normalizeUsername(formData.get("username"));
+  const password = readOptionalPassword(formData.get("password"));
+  const role = readUserRole(formData.get("role"));
   if (validateUsername(username)) {
+    return;
+  }
+
+  if (password !== null && validatePassword(password)) {
     return;
   }
 
@@ -72,6 +91,10 @@ export async function createUserAction(formData: FormData) {
     data: {
       username,
       usernameNormalized,
+      role,
+      passwordHash: password ? await hashPassword(password) : null,
+      passwordUpdatedAt: password ? new Date() : undefined,
+      mustChangePassword: false,
     },
   });
 
@@ -83,7 +106,14 @@ export async function updateUserAction(formData: FormData) {
 
   const userId = readRequiredId(formData.get("userId"));
   const username = normalizeUsername(formData.get("username"));
+  const password = readOptionalPassword(formData.get("password"));
+  const role = readUserRole(formData.get("role"));
+
   if (!userId || validateUsername(username)) {
+    return;
+  }
+
+  if (password !== null && validatePassword(password)) {
     return;
   }
 
@@ -104,6 +134,14 @@ export async function updateUserAction(formData: FormData) {
     data: {
       username,
       usernameNormalized,
+      role,
+      ...(password
+        ? {
+            passwordHash: await hashPassword(password),
+            passwordUpdatedAt: new Date(),
+            mustChangePassword: false,
+          }
+        : {}),
     },
   });
 

@@ -1,13 +1,22 @@
 import Link from "next/link";
 
 import { AppHeader } from "@/components/AppHeader";
+import { OnboardingExportPanel } from "@/components/admin/OnboardingExportPanel";
+import { PasswordResetRequestsPanel } from "@/components/admin/PasswordResetRequestsPanel";
+import { SetupCodeManager } from "@/components/admin/SetupCodeManager";
 import { LeaderboardPanel } from "@/components/LeaderboardPanel";
+import { isShooterAuthenticated } from "@/lib/auth";
 import { formatDateTime, formatSeconds } from "@/lib/format";
 import { db } from "@/lib/db";
 import {
   buildLeaderboardSnapshot,
   seasonLeaderboardInclude,
 } from "@/lib/leaderboard";
+import {
+  PasswordResetRequestStatus,
+  SetupCodePurpose,
+  UserRole,
+} from "@prisma/client";
 
 import {
   createDrillAction,
@@ -28,7 +37,7 @@ import {
 
 export const dynamic = "force-dynamic";
 
-const DASHBOARD_TABS = ["season", "shooters", "leaderboard"] as const;
+const DASHBOARD_TABS = ["season", "shooters", "accounts", "leaderboard"] as const;
 
 type DashboardTab = (typeof DASHBOARD_TABS)[number];
 
@@ -38,6 +47,9 @@ type DashboardPageProps = {
     board?: string;
     q?: string;
     shooter?: string;
+    accountQ?: string;
+    account?: string;
+    notice?: string;
   }>;
 };
 
@@ -145,20 +157,67 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const currentTab = resolveTab(params.tab);
   const shooterQuery = params.q?.trim() ?? "";
   const selectedShooterId = params.shooter?.trim() ?? "";
+  const accountQuery = params.accountQ?.trim() ?? "";
+  const selectedAccountId = params.account?.trim() ?? "";
+  const now = new Date();
+  const notice =
+    params.notice === "password-updated"
+      ? "Password updated successfully."
+      : null;
 
-  const activeSeason = await db.season.findFirst({
-    where: { endedAt: null },
-    include: seasonLeaderboardInclude,
-    orderBy: [{ createdAt: "desc" }],
-  });
+  const [shooterAuthenticated, activeSeason] = await Promise.all([
+    isShooterAuthenticated(),
+    db.season.findFirst({
+      where: { endedAt: null },
+      include: seasonLeaderboardInclude,
+      orderBy: [{ createdAt: "desc" }],
+    }),
+  ]);
 
-  const [users, seasons, recentEntries, totalUsers, totalEntries, selectedShooter] =
+  const [
+    users,
+    seasons,
+    recentEntries,
+    totalUsers,
+    totalEntries,
+    selectedShooter,
+    selectedAccount,
+    passwordResetRequests,
+  ] =
     await Promise.all([
       db.user.findMany({
         include: {
           _count: {
             select: {
               entries: true,
+              passwordResetRequests: true,
+            },
+          },
+          setupCodes: {
+            where: {
+              purpose: SetupCodePurpose.ONBOARDING,
+              usedAt: null,
+              revokedAt: null,
+              expiresAt: { gt: now },
+            },
+            orderBy: [{ createdAt: "desc" }],
+            take: 1,
+            select: {
+              id: true,
+              codeSuffix: true,
+              createdAt: true,
+              expiresAt: true,
+            },
+          },
+          passwordResetRequests: {
+            where: {
+              status: PasswordResetRequestStatus.PENDING,
+            },
+            orderBy: [{ createdAt: "desc" }],
+            take: 1,
+            select: {
+              id: true,
+              createdAt: true,
             },
           },
         },
@@ -198,6 +257,51 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
               _count: {
                 select: {
                   entries: true,
+                  passwordResetRequests: true,
+                },
+              },
+              setupCodes: {
+                where: {
+                  purpose: SetupCodePurpose.ONBOARDING,
+                  usedAt: null,
+                  revokedAt: null,
+                  expiresAt: { gt: now },
+                },
+                orderBy: [{ createdAt: "desc" }],
+                take: 1,
+                select: {
+                  id: true,
+                  codeSuffix: true,
+                  createdAt: true,
+                  expiresAt: true,
+                },
+              },
+              passwordResetRequests: {
+                orderBy: [{ createdAt: "desc" }],
+                take: 8,
+                select: {
+                  id: true,
+                  status: true,
+                  createdAt: true,
+                  reviewedAt: true,
+                  completedAt: true,
+                  reviewerNote: true,
+                  reviewedBy: {
+                    select: {
+                      id: true,
+                      username: true,
+                    },
+                  },
+                  setupCode: {
+                    select: {
+                      id: true,
+                      codeSuffix: true,
+                      createdAt: true,
+                      expiresAt: true,
+                      usedAt: true,
+                      revokedAt: true,
+                    },
+                  },
                 },
               },
               entries: {
@@ -210,20 +314,121 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
             },
           })
         : Promise.resolve(null),
+      selectedAccountId
+        ? db.user.findUnique({
+            where: { id: selectedAccountId },
+            include: {
+              _count: {
+                select: {
+                  entries: true,
+                  passwordResetRequests: true,
+                },
+              },
+              setupCodes: {
+                where: {
+                  purpose: SetupCodePurpose.ONBOARDING,
+                  usedAt: null,
+                  revokedAt: null,
+                  expiresAt: { gt: now },
+                },
+                orderBy: [{ createdAt: "desc" }],
+                take: 1,
+                select: {
+                  id: true,
+                  codeSuffix: true,
+                  createdAt: true,
+                  expiresAt: true,
+                },
+              },
+              passwordResetRequests: {
+                orderBy: [{ createdAt: "desc" }],
+                take: 8,
+                select: {
+                  id: true,
+                  status: true,
+                  createdAt: true,
+                  reviewedAt: true,
+                  completedAt: true,
+                  reviewerNote: true,
+                  reviewedBy: {
+                    select: {
+                      id: true,
+                      username: true,
+                    },
+                  },
+                  setupCode: {
+                    select: {
+                      id: true,
+                      codeSuffix: true,
+                      createdAt: true,
+                      expiresAt: true,
+                      usedAt: true,
+                      revokedAt: true,
+                    },
+                  },
+                },
+              },
+            },
+          })
+        : Promise.resolve(null),
+      db.passwordResetRequest.findMany({
+        take: 20,
+        orderBy: [{ createdAt: "desc" }],
+        select: {
+          id: true,
+          status: true,
+          reviewerNote: true,
+          createdAt: true,
+          reviewedAt: true,
+          completedAt: true,
+          user: {
+            select: {
+              id: true,
+              username: true,
+              role: true,
+            },
+          },
+          reviewedBy: {
+            select: {
+              id: true,
+              username: true,
+            },
+          },
+          setupCode: {
+            select: {
+              id: true,
+              codeSuffix: true,
+              createdAt: true,
+              expiresAt: true,
+              usedAt: true,
+              revokedAt: true,
+            },
+          },
+        },
+      }),
     ]);
 
-  const filteredUsers = shooterQuery
-    ? users.filter((user) =>
+  const shooters = users.filter((user) => user.role === UserRole.SHOOTER);
+  const filteredShooters = shooterQuery
+    ? shooters.filter((user) =>
         user.username.toLocaleLowerCase("en-US").includes(shooterQuery.toLocaleLowerCase("en-US")),
       )
+    : shooters;
+  const filteredAccounts = accountQuery
+    ? users.filter((user) =>
+        user.username.toLocaleLowerCase("en-US").includes(accountQuery.toLocaleLowerCase("en-US")),
+      )
     : users;
+  const totalAdmins = users.filter((user) => user.role === UserRole.ADMIN).length;
+  const totalShooters = shooters.length;
+  const pendingSetupShooterCount = shooters.filter((user) => !user.passwordHash).length;
 
   const liveSnapshot = activeSeason
     ? buildLeaderboardSnapshot(activeSeason, { publishedAt: activeSeason.publishedAt })
     : null;
 
   const shooterStats = getShooterStats(
-    selectedShooter
+    selectedShooter?.role === UserRole.SHOOTER
       ? {
           createdAt: selectedShooter.createdAt,
           entries: selectedShooter.entries,
@@ -235,18 +440,35 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
   return (
     <div className="site-root">
-      <AppHeader authenticated active="dashboard" leaderboardHref="/admin/leaderboard" />
+      <AppHeader
+        authenticated
+        shooterAuthenticated={shooterAuthenticated}
+        active="dashboard"
+        leaderboardHref="/admin/leaderboard"
+      />
 
       <main className="site-shell page-stack">
         <section className="page-bar">
           <h1 className="page-title">Dashboard</h1>
         </section>
 
+        {notice ? <p className="success-banner">{notice}</p> : null}
+
         <section className="stats-grid">
           <article className="panel stat-card">
             <p className="section-eyebrow">USERS</p>
             <strong>{totalUsers}</strong>
-            <span>Registered shooters</span>
+            <span>All database-backed accounts</span>
+          </article>
+          <article className="panel stat-card">
+            <p className="section-eyebrow">SHOOTERS</p>
+            <strong>{totalShooters}</strong>
+            <span>Leaderboard participants</span>
+          </article>
+          <article className="panel stat-card">
+            <p className="section-eyebrow">ADMINS</p>
+            <strong>{totalAdmins}</strong>
+            <span>Dashboard-capable accounts</span>
           </article>
           <article className="panel stat-card">
             <p className="section-eyebrow">ENTRIES</p>
@@ -425,62 +647,39 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
         {currentTab === "shooters" ? (
           <section className="content-stack">
-            <section className="dashboard-grid dashboard-grid--balanced">
-              <article className="panel">
-                <div className="panel-header">
-                  <h2>Search Shooters</h2>
-                </div>
+            <article className="panel">
+              <div className="panel-header">
+                <h2>Search Shooters</h2>
+              </div>
 
-                <form action="/admin/dashboard" method="get" className="form-grid form-grid--single">
-                  <input type="hidden" name="tab" value="shooters" />
-                  <label className="field">
-                    <span className="field__label">Search By Username</span>
-                    <input
-                      className="text-input"
-                      name="q"
-                      list="dashboard-shooters"
-                      defaultValue={shooterQuery}
-                      placeholder="Start typing a shooter"
-                    />
-                  </label>
-                  <div className="button-row">
-                    <button type="submit" className="button button--primary">
-                      SEARCH
-                    </button>
-                    <Link href={buildDashboardHref("shooters")} className="button button--ghost">
-                      CLEAR
-                    </Link>
-                  </div>
-                </form>
-
-                <datalist id="dashboard-shooters">
-                  {users.map((user) => (
-                    <option key={user.id} value={user.username} />
-                  ))}
-                </datalist>
-              </article>
-
-              <article className="panel">
-                <div className="panel-header">
-                  <h2>New Shooter</h2>
-                </div>
-
-                <form action={createUserAction} className="form-grid form-grid--single">
-                  <label className="field">
-                    <span className="field__label">Username</span>
-                    <input
-                      className="text-input"
-                      name="username"
-                      placeholder="Shooter name"
-                      required
-                    />
-                  </label>
+              <form action="/admin/dashboard" method="get" className="form-grid form-grid--single">
+                <input type="hidden" name="tab" value="shooters" />
+                <label className="field">
+                  <span className="field__label">Search By Username</span>
+                  <input
+                    className="text-input"
+                    name="q"
+                    list="dashboard-shooter-search"
+                    defaultValue={shooterQuery}
+                    placeholder="Start typing a shooter"
+                  />
+                </label>
+                <div className="button-row">
                   <button type="submit" className="button button--primary">
-                    ADD SHOOTER
+                    SEARCH
                   </button>
-                </form>
-              </article>
-            </section>
+                  <Link href={buildDashboardHref("shooters")} className="button button--ghost">
+                    CLEAR
+                  </Link>
+                </div>
+              </form>
+
+              <datalist id="dashboard-shooter-search">
+                {shooters.map((user) => (
+                  <option key={user.id} value={user.username} />
+                ))}
+              </datalist>
+            </article>
 
             {selectedShooter ? (
               <article className="panel">
@@ -490,7 +689,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                     href={buildDashboardHref("shooters", { q: shooterQuery || null })}
                     className="button button--ghost"
                   >
-                    CLOSE PROFILE
+                    CLOSE SHOOTER
                   </Link>
                 </div>
 
@@ -527,32 +726,12 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                         : "N/A"}
                     </strong>
                   </div>
+                  <div className="detail-stat">
+                    <span>Member since</span>
+                    <strong>{formatDateTime(selectedShooter.createdAt)}</strong>
+                  </div>
                 </div>
 
-                <div className="button-row button-row--stretch">
-                  <form action={updateUserAction} className="inline-form inline-form--grow">
-                    <input type="hidden" name="userId" value={selectedShooter.id} />
-                    <label className="field field--grow">
-                      <span className="field__label">Username</span>
-                      <input
-                        className="text-input"
-                        name="username"
-                        defaultValue={selectedShooter.username}
-                        required
-                      />
-                    </label>
-                    <button type="submit" className="button button--ghost">
-                      SAVE
-                    </button>
-                  </form>
-
-                  <form action={deleteUserAction}>
-                    <input type="hidden" name="userId" value={selectedShooter.id} />
-                    <button type="submit" className="button button--danger">
-                      DELETE
-                    </button>
-                  </form>
-                </div>
                 <div className="dashboard-grid dashboard-grid--balanced">
                   <div className="subpanel">
                     <div className="panel-header">
@@ -603,17 +782,17 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
             <article className="panel">
               <div className="panel-header">
                 <h2>{shooterQuery ? "Search Results" : "All Shooters"}</h2>
-                <span className="panel-note">{filteredUsers.length} shown</span>
+                <span className="panel-note">{filteredShooters.length} shown</span>
               </div>
 
               <div className="entity-list entity-list--scroll">
-                {filteredUsers.length > 0 ? (
-                  filteredUsers.map((user) => (
+                {filteredShooters.length > 0 ? (
+                  filteredShooters.map((user) => (
                     <div key={user.id} className="entity-card entity-card--row">
                       <div className="entity-meta entity-meta--stack">
                         <strong>{user.username}</strong>
                         <span>{user._count.entries} attempts</span>
-                        <span>Created {formatDateTime(user.createdAt)}</span>
+                        <span>Member since {formatDateTime(user.createdAt)}</span>
                       </div>
                       <Link
                         href={buildDashboardHref("shooters", {
@@ -622,7 +801,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                         })}
                         className="button button--ghost"
                       >
-                        VIEW STATS
+                        VIEW SHOOTER
                       </Link>
                     </div>
                   ))
@@ -631,6 +810,378 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                 )}
               </div>
             </article>
+          </section>
+        ) : null}
+
+        {currentTab === "accounts" ? (
+          <section className="content-stack">
+            <section className="dashboard-grid dashboard-grid--shooters">
+              <article className="panel">
+                <div className="panel-header">
+                  <h2>Search Accounts</h2>
+                </div>
+
+                <form action="/admin/dashboard" method="get" className="form-grid form-grid--single">
+                  <input type="hidden" name="tab" value="accounts" />
+                  <label className="field">
+                    <span className="field__label">Search By Username</span>
+                    <input
+                      className="text-input"
+                      name="accountQ"
+                      list="dashboard-account-search"
+                      defaultValue={accountQuery}
+                      placeholder="Start typing an account"
+                    />
+                  </label>
+                  <div className="button-row">
+                    <button type="submit" className="button button--primary">
+                      SEARCH
+                    </button>
+                    <Link href={buildDashboardHref("accounts")} className="button button--ghost">
+                      CLEAR
+                    </Link>
+                  </div>
+                </form>
+
+                <datalist id="dashboard-account-search">
+                  {users.map((user) => (
+                    <option key={user.id} value={user.username} />
+                  ))}
+                </datalist>
+              </article>
+
+              <article className="panel">
+                <div className="panel-header">
+                  <h2>New User Account</h2>
+                </div>
+
+                <form action={createUserAction} className="form-grid form-grid--single">
+                  <label className="field">
+                    <span className="field__label">Username</span>
+                    <input
+                      className="text-input"
+                      name="username"
+                      placeholder="Shooter name"
+                      required
+                    />
+                  </label>
+                  <label className="field">
+                    <span className="field__label">Role</span>
+                    <select className="text-input" name="role" defaultValue={UserRole.SHOOTER}>
+                      <option value={UserRole.SHOOTER}>Shooter</option>
+                      <option value={UserRole.ADMIN}>Admin</option>
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span className="field__label">Initial Password</span>
+                    <input
+                      className="text-input"
+                      name="password"
+                      type="password"
+                      autoComplete="new-password"
+                      placeholder="Optional, minimum 8 characters"
+                    />
+                  </label>
+                  <p className="panel-note">
+                    Leave the password empty to keep the account in setup-pending state. Adding a
+                    password enables immediate sign-in for the selected role.
+                  </p>
+                  <button type="submit" className="button button--primary">
+                    ADD USER
+                  </button>
+                </form>
+              </article>
+
+              <OnboardingExportPanel pendingShooterCount={pendingSetupShooterCount} />
+            </section>
+
+            {selectedAccount ? (
+              <article className="panel">
+                <div className="panel-header">
+                  <h2>{selectedAccount.username}</h2>
+                  <Link
+                    href={buildDashboardHref("accounts", { accountQ: accountQuery || null })}
+                    className="button button--ghost"
+                  >
+                    CLOSE ACCOUNT
+                  </Link>
+                </div>
+
+                <div className="detail-stats">
+                  <div className="detail-stat">
+                    <span>Role</span>
+                    <strong>{selectedAccount.role}</strong>
+                  </div>
+                  <div className="detail-stat">
+                    <span>Total attempts</span>
+                    <strong>{selectedAccount._count.entries}</strong>
+                  </div>
+                  <div className="detail-stat">
+                    <span>Created</span>
+                    <strong>{formatDateTime(selectedAccount.createdAt)}</strong>
+                  </div>
+                  <div className="detail-stat">
+                    <span>Account state</span>
+                    <strong>
+                      {selectedAccount.passwordHash
+                        ? "READY"
+                        : selectedAccount.role === UserRole.ADMIN
+                          ? "NO PASSWORD"
+                          : "SETUP"}
+                    </strong>
+                  </div>
+                  <div className="detail-stat">
+                    <span>Pending resets</span>
+                    <strong>
+                      {
+                        selectedAccount.passwordResetRequests.filter(
+                          (request) => request.status === PasswordResetRequestStatus.PENDING,
+                        ).length
+                      }
+                    </strong>
+                  </div>
+                  <div className="detail-stat">
+                    <span>Password updated</span>
+                    <strong>
+                      {selectedAccount.passwordHash
+                        ? formatDateTime(selectedAccount.passwordUpdatedAt)
+                        : "NOT SET"}
+                    </strong>
+                  </div>
+                  <div className="detail-stat">
+                    <span>Onboarding code</span>
+                    <strong>
+                      {selectedAccount.setupCodes[0]
+                        ? `****-${selectedAccount.setupCodes[0].codeSuffix}`
+                        : "NONE"}
+                    </strong>
+                  </div>
+                </div>
+
+                <div className="dashboard-grid dashboard-grid--balanced">
+                  <div className="subpanel">
+                    <div className="panel-header">
+                      <div>
+                        <p className="section-eyebrow">ACCOUNT</p>
+                        <h3>Identity & Access</h3>
+                      </div>
+                      <span
+                        className={`status-badge ${
+                          selectedAccount.passwordHash
+                            ? "status-badge--ok"
+                            : "status-badge--warn"
+                        }`}
+                      >
+                        {selectedAccount.passwordHash ? "ACCESS ENABLED" : "SETUP PENDING"}
+                      </span>
+                    </div>
+
+                    <form action={updateUserAction} className="form-grid">
+                      <input type="hidden" name="userId" value={selectedAccount.id} />
+                      <label className="field">
+                        <span className="field__label">Username</span>
+                        <input
+                          className="text-input"
+                          name="username"
+                          defaultValue={selectedAccount.username}
+                          required
+                        />
+                      </label>
+
+                      <label className="field">
+                        <span className="field__label">Role</span>
+                        <select
+                          className="text-input"
+                          name="role"
+                          defaultValue={selectedAccount.role}
+                        >
+                          <option value={UserRole.SHOOTER}>Shooter</option>
+                          <option value={UserRole.ADMIN}>Admin</option>
+                        </select>
+                      </label>
+
+                      <label className="field">
+                        <span className="field__label">
+                          {selectedAccount.passwordHash ? "Rotate Password" : "Enable Access"}
+                        </span>
+                        <input
+                          className="text-input"
+                          name="password"
+                          type="password"
+                          autoComplete="new-password"
+                          placeholder={
+                            selectedAccount.passwordHash
+                              ? "Leave blank to keep the current password"
+                              : "Set a first password"
+                          }
+                        />
+                      </label>
+
+                      <button type="submit" className="button button--primary field--span-2">
+                        SAVE ACCOUNT
+                      </button>
+                    </form>
+
+                    <p className="panel-note">
+                      Passwords can be set directly here for immediate access, or you can leave the
+                      account without a password and issue an onboarding setup code instead.
+                    </p>
+                  </div>
+
+                  <SetupCodeManager
+                    userId={selectedAccount.id}
+                    username={selectedAccount.username}
+                    activeSetupCode={
+                      selectedAccount.setupCodes[0]
+                        ? {
+                            codeSuffix: selectedAccount.setupCodes[0].codeSuffix,
+                            createdAt: selectedAccount.setupCodes[0].createdAt.toISOString(),
+                            expiresAt: selectedAccount.setupCodes[0].expiresAt.toISOString(),
+                          }
+                        : null
+                    }
+                  />
+                </div>
+
+                <div className="dashboard-grid dashboard-grid--balanced">
+                  <div className="subpanel">
+                    <div className="panel-header">
+                      <h3>Reset Activity</h3>
+                    </div>
+                    <div className="entity-list">
+                      {selectedAccount.passwordResetRequests.length > 0 ? (
+                        selectedAccount.passwordResetRequests.map((request) => (
+                          <div key={request.id} className="entity-card">
+                            <div className="entity-meta entity-meta--stack">
+                              <div className="entity-badge-row">
+                                <span className="status-badge status-badge--neutral">
+                                  {request.status}
+                                </span>
+                                {request.setupCode ? (
+                                  <span className="status-badge status-badge--warn">
+                                    {`CODE ****-${request.setupCode.codeSuffix}`}
+                                  </span>
+                                ) : null}
+                              </div>
+                              <span>Requested {formatDateTime(request.createdAt)}</span>
+                              <span>
+                                Reviewed{" "}
+                                {request.reviewedAt
+                                  ? formatDateTime(request.reviewedAt)
+                                  : "NOT REVIEWED"}
+                              </span>
+                              <span>
+                                Completed{" "}
+                                {request.completedAt
+                                  ? formatDateTime(request.completedAt)
+                                  : "NOT COMPLETED"}
+                              </span>
+                              <span>
+                                By {request.reviewedBy?.username ?? "SYSTEM / PENDING"}
+                              </span>
+                              {request.reviewerNote ? <span>{request.reviewerNote}</span> : null}
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="empty-state">No password reset activity for this account.</div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="subpanel">
+                    <div className="panel-header">
+                      <h3>Danger Zone</h3>
+                    </div>
+                    <p className="panel-note">
+                      Deleting an account removes access for that user immediately. Existing entry
+                      history will follow the current delete behavior from the backend action.
+                    </p>
+                    <div className="button-row">
+                      <form action={deleteUserAction}>
+                        <input type="hidden" name="userId" value={selectedAccount.id} />
+                        <button type="submit" className="button button--danger">
+                          DELETE ACCOUNT
+                        </button>
+                      </form>
+                    </div>
+                  </div>
+                </div>
+              </article>
+            ) : null}
+
+            <article className="panel">
+              <div className="panel-header">
+                <h2>{accountQuery ? "Search Results" : "All Accounts"}</h2>
+                <span className="panel-note">{filteredAccounts.length} shown</span>
+              </div>
+
+              <div className="entity-list entity-list--scroll">
+                {filteredAccounts.length > 0 ? (
+                  filteredAccounts.map((user) => (
+                    <div key={user.id} className="entity-card entity-card--row">
+                      <div className="entity-meta entity-meta--stack">
+                        <div className="entity-badge-row">
+                          <span className="status-badge status-badge--neutral">{user.role}</span>
+                          <span
+                            className={`status-badge ${
+                              user.passwordHash ? "status-badge--ok" : "status-badge--warn"
+                            }`}
+                          >
+                            {user.passwordHash ? "READY" : "SETUP"}
+                          </span>
+                          {user.passwordResetRequests[0] ? (
+                            <span className="status-badge status-badge--warn">RESET PENDING</span>
+                          ) : null}
+                        </div>
+                        <strong>{user.username}</strong>
+                        <span>{user._count.entries} attempts</span>
+                        <span>
+                          {user.passwordHash
+                            ? "Access enabled"
+                            : user.role === UserRole.ADMIN
+                              ? "No password set yet"
+                              : "Setup code required"}
+                        </span>
+                        {user.setupCodes[0] ? (
+                          <span>{`Setup code ****-${user.setupCodes[0].codeSuffix}`}</span>
+                        ) : null}
+                        <span>Created {formatDateTime(user.createdAt)}</span>
+                      </div>
+                      <Link
+                        href={buildDashboardHref("accounts", {
+                          accountQ: accountQuery || null,
+                          account: user.id,
+                        })}
+                        className="button button--ghost"
+                      >
+                        MANAGE ACCOUNT
+                      </Link>
+                    </div>
+                  ))
+                ) : (
+                  <div className="empty-state">No accounts match that search.</div>
+                )}
+              </div>
+            </article>
+
+            <PasswordResetRequestsPanel
+              requests={passwordResetRequests.map((request) => ({
+                ...request,
+                createdAt: request.createdAt.toISOString(),
+                reviewedAt: request.reviewedAt?.toISOString() ?? null,
+                completedAt: request.completedAt?.toISOString() ?? null,
+                setupCode: request.setupCode
+                  ? {
+                      ...request.setupCode,
+                      createdAt: request.setupCode.createdAt.toISOString(),
+                      expiresAt: request.setupCode.expiresAt.toISOString(),
+                      usedAt: request.setupCode.usedAt?.toISOString() ?? null,
+                      revokedAt: request.setupCode.revokedAt?.toISOString() ?? null,
+                    }
+                  : null,
+              }))}
+            />
           </section>
         ) : null}
 

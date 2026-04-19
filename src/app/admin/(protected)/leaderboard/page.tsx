@@ -1,4 +1,5 @@
 import { AppHeader } from "@/components/AppHeader";
+import { isShooterAuthenticated } from "@/lib/auth";
 import { LeaderboardPanel } from "@/components/LeaderboardPanel";
 import { formatDateTime } from "@/lib/format";
 import { getPublishedLeaderboardState } from "@/lib/leaderboard";
@@ -15,11 +16,19 @@ export default async function AdminLeaderboardPage({
   searchParams,
 }: AdminLeaderboardPageProps) {
   const params = await searchParams;
-  const publishedState = await getPublishedLeaderboardState();
+  const [shooterAuthenticated, publishedState] = await Promise.all([
+    isShooterAuthenticated(),
+    getPublishedLeaderboardState(),
+  ]);
 
   return (
     <div className="site-root">
-      <AppHeader authenticated active="leaderboard" leaderboardHref="/admin/leaderboard" />
+      <AppHeader
+        authenticated
+        shooterAuthenticated={shooterAuthenticated}
+        active="leaderboard"
+        leaderboardHref="/admin/leaderboard"
+      />
 
       <main className="site-shell page-stack">
         <section className="page-bar">
