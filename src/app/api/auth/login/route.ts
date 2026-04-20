@@ -1,8 +1,8 @@
-import { NextResponse } from "next/server";
 import { AuthError } from "next-auth";
 
 import { signIn } from "@/lib/auth";
 import { inspectLoginAttempt } from "@/lib/auth-backend";
+import { redirectToPath, toRedirectPath } from "@/lib/redirect-response";
 import { normalizeEmail, normalizeUsername } from "@/lib/validators";
 
 export const dynamic = "force-dynamic";
@@ -58,9 +58,7 @@ export async function POST(request: Request) {
       search.set("mode", "admin");
     }
 
-    return NextResponse.redirect(new URL(`/login?${search.toString()}`, request.url), {
-      status: 303,
-    });
+    return redirectToPath(`/login?${search.toString()}`);
   }
 
   try {
@@ -72,9 +70,8 @@ export async function POST(request: Request) {
       redirectTo: "/auth/complete",
     });
 
-    return NextResponse.redirect(
-      new URL(resolveRedirectTarget(redirectTarget, "/auth/complete"), request.url),
-      { status: 303 },
+    return redirectToPath(
+      toRedirectPath(resolveRedirectTarget(redirectTarget, "/auth/complete"), "/auth/complete"),
     );
   } catch (error) {
     if (error instanceof AuthError) {
@@ -84,9 +81,7 @@ export async function POST(request: Request) {
         search.set("mode", "admin");
       }
 
-      return NextResponse.redirect(new URL(`/login?${search.toString()}`, request.url), {
-        status: 303,
-      });
+      return redirectToPath(`/login?${search.toString()}`);
     }
 
     throw error;

@@ -1,5 +1,3 @@
-import { NextResponse } from "next/server";
-
 import { currentUser, refreshCurrentUserSession } from "@/lib/auth";
 import {
   AuthFlowError,
@@ -7,6 +5,7 @@ import {
   updateCurrentUserPassword,
 } from "@/lib/auth-backend";
 import { readStringBody } from "@/lib/api-input";
+import { redirectToPath } from "@/lib/redirect-response";
 import { validatePassword } from "@/lib/validators";
 
 export const dynamic = "force-dynamic";
@@ -16,10 +15,7 @@ function resolveMode(userMustChangePassword: boolean) {
   return userMustChangePassword ? "forced" : "authenticated";
 }
 
-function redirectToChangePassword(
-  request: Request,
-  params: Record<string, string | null | undefined>,
-) {
+function redirectToChangePassword(params: Record<string, string | null | undefined>) {
   const search = new URLSearchParams();
 
   for (const [key, value] of Object.entries(params)) {
@@ -29,18 +25,13 @@ function redirectToChangePassword(
   }
 
   const query = search.toString();
-  return NextResponse.redirect(
-    new URL(query ? `/change-password?${query}` : "/change-password", request.url),
-    { status: 303 },
-  );
+  return redirectToPath(query ? `/change-password?${query}` : "/change-password");
 }
 
 export async function POST(request: Request) {
   const user = await currentUser();
   if (!user) {
-    return NextResponse.redirect(new URL("/login?error=missing", request.url), {
-      status: 303,
-    });
+    return redirectToPath("/login?error=missing");
   }
 
   const body = await readStringBody(request);
@@ -50,21 +41,21 @@ export async function POST(request: Request) {
   const mode = resolveMode(user.mustChangePassword);
 
   if (!newPassword || !confirmPassword || (!user.mustChangePassword && !currentPassword)) {
-    return redirectToChangePassword(request, {
+    return redirectToChangePassword({
       mode,
       error: "missing",
     });
   }
 
   if (newPassword !== confirmPassword) {
-    return redirectToChangePassword(request, {
+    return redirectToChangePassword({
       mode,
       error: "mismatch",
     });
   }
 
   if (validatePassword(newPassword)) {
-    return redirectToChangePassword(request, {
+    return redirectToChangePassword({
       mode,
       error: "weak",
     });
@@ -84,16 +75,14 @@ export async function POST(request: Request) {
       ? "/admin/dashboard?tab=shooters&notice=password-updated"
       : "/profile?tab=account&notice=password-updated";
 
-    return NextResponse.redirect(new URL(destination, request.url), {
-      status: 303,
-    });
+    return redirectToPath(destination);
   } catch (error) {
     const errorCode =
       error instanceof AuthFlowError && error.code === "invalid_current_password"
         ? "invalid"
         : "required";
 
-    return redirectToChangePassword(request, {
+    return redirectToChangePassword({
       mode,
       error: errorCode,
     });

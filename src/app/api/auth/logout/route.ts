@@ -1,6 +1,5 @@
-import { NextResponse } from "next/server";
-
 import { signOut } from "@/lib/auth";
+import { redirectToPath, toRedirectPath } from "@/lib/redirect-response";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -23,14 +22,13 @@ function resolveRedirectTarget(result: unknown, fallbackPath: string) {
   return fallbackPath;
 }
 
-export async function POST(request: Request) {
+export async function POST() {
   const redirectTarget = await signOut({
     redirect: false,
     redirectTo: "/",
   });
 
-  return NextResponse.redirect(
-    new URL(resolveRedirectTarget(redirectTarget, "/"), request.url),
-    { status: 303 },
+  return redirectToPath(
+    toRedirectPath(resolveRedirectTarget(redirectTarget, "/"), "/"),
   );
 }
