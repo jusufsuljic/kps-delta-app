@@ -36,8 +36,6 @@ const scrypt = promisify(scryptCallback);
 const DEFAULT_ADMIN_USERNAME = process.env.SEED_ADMIN_USERNAME || "admin";
 const DEFAULT_ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD || "change-me";
 const DEFAULT_USER_PASSWORD = process.env.SEED_USER_PASSWORD || "delta1234";
-const SHOOTER_PASSWORD_MODE =
-  process.env.SEED_SHOOTER_PASSWORD_MODE === "setup-pending" ? "setup-pending" : "preset";
 const ATTEMPTS_PER_DRILL = 5;
 const DRILL_DEFINITIONS = [
   { name: "Bill Drill", base: 3.52, userStep: 0.065 },
@@ -194,11 +192,7 @@ const prisma = new PrismaClient({
 async function main() {
   console.log("Resetting leaderboard data...");
   console.log("Seeding a local admin account from SEED_ADMIN_USERNAME/SEED_ADMIN_PASSWORD.");
-  console.log(
-    SHOOTER_PASSWORD_MODE === "setup-pending"
-      ? "Seeding shooters without passwords so admin can onboard them through the app."
-      : "Seeding all users with a local password from SEED_USER_PASSWORD or delta1234.",
-  );
+  console.log("Seeding all users with a local password from SEED_USER_PASSWORD or delta1234.");
 
   await prisma.entry.deleteMany();
   await prisma.drill.deleteMany();
@@ -225,8 +219,7 @@ async function main() {
 
   const users = new Map();
   const adminPasswordHash = await hashPassword(DEFAULT_ADMIN_PASSWORD);
-  const shooterPasswordHash =
-    SHOOTER_PASSWORD_MODE === "preset" ? await hashPassword(DEFAULT_USER_PASSWORD) : null;
+  const shooterPasswordHash = await hashPassword(DEFAULT_USER_PASSWORD);
 
   await prisma.user.create({
     data: {
@@ -275,21 +268,14 @@ async function main() {
   for (const username of allUsernames) {
     const normalizedUsername = normalizeUsername(username);
     const created = await prisma.user.create({
-      data:
-        SHOOTER_PASSWORD_MODE === "preset"
-          ? {
-              username: normalizedUsername,
-              usernameNormalized: normalizeUsernameKey(normalizedUsername),
-              role: UserRole.SHOOTER,
-              passwordHash: shooterPasswordHash,
-              passwordUpdatedAt: new Date(),
-              mustChangePassword: false,
-            }
-          : {
-              username: normalizedUsername,
-              usernameNormalized: normalizeUsernameKey(normalizedUsername),
-              role: UserRole.SHOOTER,
-            },
+      data: {
+        username: normalizedUsername,
+        usernameNormalized: normalizeUsernameKey(normalizedUsername),
+        role: UserRole.SHOOTER,
+        passwordHash: shooterPasswordHash,
+        passwordUpdatedAt: new Date(),
+        mustChangePassword: false,
+      },
     });
     users.set(normalizedUsername, created);
   }
@@ -351,7 +337,7 @@ async function main() {
   console.log("Drills:", drills.map((drill) => drill.drillName).join(", "));
   console.log("Admin:", DEFAULT_ADMIN_USERNAME);
   console.log("Users:", users.size);
-  console.log("Shooter auth state:", SHOOTER_PASSWORD_MODE === "preset" ? "password-ready" : "setup-pending");
+  console.log("Shooter auth state:", "password-ready");
   console.log("Attempts per drill per user:", ATTEMPTS_PER_DRILL);
   console.log("Entries:", createdEntries.length);
 }

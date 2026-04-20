@@ -2,7 +2,7 @@ type PasswordChangeMode = "authenticated" | "forced" | "request-reset";
 
 type PasswordChangePanelProps = {
   mode: PasswordChangeMode;
-  username?: string;
+  email?: string;
   error?: string;
   success?: string;
 };
@@ -10,7 +10,7 @@ type PasswordChangePanelProps = {
 function getErrorMessage(error?: string) {
   switch (error) {
     case "expired":
-      return "That password link has expired. Request a new reset or setup link.";
+      return "That reset code has expired. Request a new password reset.";
     case "weak":
       return "Choose a stronger password with at least 8 characters.";
     case "mismatch":
@@ -39,7 +39,7 @@ function getSuccessMessage(success?: string) {
 
 export function PasswordChangePanel({
   mode,
-  username,
+  email,
   error,
   success,
 }: PasswordChangePanelProps) {
@@ -72,28 +72,28 @@ export function PasswordChangePanel({
       {errorMessage ? <p className="error-banner">{errorMessage}</p> : null}
       {successMessage ? <p className="success-banner">{successMessage}</p> : null}
 
-      {username && !isResetRequest ? (
+      {email && !isResetRequest ? (
         <div className="readonly-field">
           <span className="field__label">Account</span>
-          <div className="readonly-field__value">{username}</div>
+          <div className="readonly-field__value">{email}</div>
         </div>
       ) : null}
 
       <form action={actionPath} method="post" className="form-grid form-grid--single">
         <input type="hidden" name="mode" value={mode} />
-        {username && !isResetRequest ? (
-          <input type="hidden" name="username" value={username} />
+        {email && !isResetRequest ? (
+          <input type="hidden" name="username" value={email} />
         ) : null}
 
         {isResetRequest ? (
           <label className="field">
-            <span className="field__label">Username</span>
+            <span className="field__label">Email</span>
             <input
               className="text-input"
-              name="username"
-              type="text"
-              autoComplete="username"
-              defaultValue={username}
+              name="email"
+              type="email"
+              autoComplete="email"
+              defaultValue={email}
               required
             />
           </label>

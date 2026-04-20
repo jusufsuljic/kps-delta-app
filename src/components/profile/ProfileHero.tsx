@@ -5,7 +5,6 @@ type ProfileHeroProps = {
   joinedAt: Date;
   totalEntries: number;
   drillsShot: number;
-  bestTime: number | null;
   lastShotAt: Date | null;
 };
 
@@ -26,7 +25,6 @@ export function ProfileHero({
   joinedAt,
   totalEntries,
   drillsShot,
-  bestTime,
   lastShotAt,
 }: ProfileHeroProps) {
   return (
@@ -50,7 +48,6 @@ export function ProfileHero({
         <span>Joined: {formatShortDate(joinedAt)}</span>
         <span>{totalEntries} total entries</span>
         <span>{drillsShot} drills shot</span>
-        {/* <span>Best: {bestTime ? `${bestTime.toFixed(2)}s` : "--"}</span> */}
         <span>Last shot: {formatShortDate(lastShotAt)}</span>
       </div>
     </section>

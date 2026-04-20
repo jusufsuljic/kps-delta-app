@@ -1,7 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 
-export type SiteHeaderActive = "leaderboard" | "profile" | "login" | "dashboard";
+export type SiteHeaderActive = "leaderboard" | "profile" | "login" | "register" | "dashboard";
 
 type SiteHeaderProps = {
   active: SiteHeaderActive;
@@ -18,7 +18,7 @@ export function SiteHeader({
 }: SiteHeaderProps) {
   const hasLoggedOutState = !shooterAuthenticated && !adminAuthenticated;
   const sessionLabel = adminAuthenticated ? "ADMIN" : shooterAuthenticated ? "SHOOTER" : null;
-  const logoutAction = adminAuthenticated ? "/api/auth/logout" : "/api/profile/logout";
+  const logoutAction = "/api/auth/logout";
 
   return (
     <header className="site-header">
@@ -59,12 +59,20 @@ export function SiteHeader({
             ) : null}
 
             {hasLoggedOutState ? (
-              <Link
-                href="/login"
-                className={`nav-link ${active === "login" ? "nav-link--active" : ""}`}
-              >
-                LOGIN
-              </Link>
+              <>
+                <Link
+                  href="/login"
+                  className={`nav-link ${active === "login" ? "nav-link--active" : ""}`}
+                >
+                  LOGIN
+                </Link>
+                <Link
+                  href="/register"
+                  className={`nav-link ${active === "register" ? "nav-link--active" : ""}`}
+                >
+                  REGISTER
+                </Link>
+              </>
             ) : null}
           </nav>
 

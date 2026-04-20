@@ -1,6 +1,7 @@
 import {
   PasswordResetRequestStatus,
   Prisma,
+  RegistrationRequestStatus,
   SetupCodePurpose,
   UserRole,
 } from "@prisma/client";
@@ -13,7 +14,18 @@ import {
   hashSetupCode,
   verifyPasswordHash,
 } from "@/lib/password";
-import { normalizeUsername, normalizeUsernameKey } from "@/lib/validators";
+import {
+  buildDisplayName,
+  normalizeEmail,
+  normalizeEmailKey,
+  normalizePersonName,
+  normalizePersonNameKey,
+  normalizeUsername,
+  normalizeUsernameKey,
+  validateEmail,
+  validatePassword,
+  validatePersonName,
+} from "@/lib/validators";
 
 const DEFAULT_SETUP_CODE_TTL_HOURS = 48;
 const MAX_SETUP_CODE_TTL_HOURS = 24 * 14;
@@ -22,6 +34,10 @@ const authUserSelect = {
   id: true,
   username: true,
   usernameNormalized: true,
+  firstName: true,
+  lastName: true,
+  email: true,
+  emailNormalized: true,
   role: true,
   passwordHash: true,
   passwordUpdatedAt: true,
@@ -33,6 +49,10 @@ export const currentUserSelect = {
   id: true,
   username: true,
   usernameNormalized: true,
+  firstName: true,
+  lastName: true,
+  email: true,
+  emailNormalized: true,
   role: true,
   passwordHash: true,
   passwordUpdatedAt: true,
@@ -85,12 +105,36 @@ export type PasswordResetRequestListItem = Prisma.PasswordResetRequestGetPayload
   select: typeof passwordResetListSelect;
 }>;
 
-export type SetupTokenMetadata = {
-  username: string;
-  role: UserRole;
-  expiresAt: Date;
-  status: "active" | "expired" | "used";
-};
+const registrationRequestListSelect = {
+  id: true,
+  firstName: true,
+  lastName: true,
+  fullNameNormalized: true,
+  email: true,
+  emailNormalized: true,
+  status: true,
+  reviewerNote: true,
+  createdAt: true,
+  reviewedAt: true,
+  reviewedBy: {
+    select: {
+      id: true,
+      username: true,
+    },
+  },
+  approvedUser: {
+    select: {
+      id: true,
+      username: true,
+      email: true,
+      role: true,
+    },
+  },
+} satisfies Prisma.RegistrationRequestSelect;
+
+export type RegistrationRequestListItem = Prisma.RegistrationRequestGetPayload<{
+  select: typeof registrationRequestListSelect;
+}>;
 
 export class AuthFlowError extends Error {
   constructor(
@@ -130,11 +174,33 @@ function normalizeUsernameLookup(usernameInput: string) {
   };
 }
 
+function normalizeEmailLookup(emailInput: string) {
+  const email = normalizeEmail(emailInput);
+  const emailNormalized = normalizeEmailKey(email);
+
+  if (!email || validateEmail(email) || !emailNormalized) {
+    return null;
+  }
+
+  return {
+    email,
+    emailNormalized,
+  };
+}
+
+function toFullNameKey(firstName: string, lastName: string) {
+  return normalizePersonNameKey(buildDisplayName(firstName, lastName));
+}
+
 function toCurrentUser(user: AuthUserRecord): CurrentAuthUser {
   return {
     id: user.id,
     username: user.username,
     usernameNormalized: user.usernameNormalized,
+    firstName: user.firstName,
+    lastName: user.lastName,
+    email: user.email,
+    emailNormalized: user.emailNormalized,
     role: user.role,
     passwordHash: user.passwordHash,
     passwordUpdatedAt: user.passwordUpdatedAt,
@@ -143,34 +209,12 @@ function toCurrentUser(user: AuthUserRecord): CurrentAuthUser {
   };
 }
 
-export async function authenticateWithCredentials(params: {
-  username: string;
-  password: string;
-  portal: "admin" | "any";
-}) {
-  const lookup = normalizeUsernameLookup(params.username);
-  if (!lookup || !params.password) {
-    return null;
-  }
-
-  const user = await db.user.findFirst({
-    where: { usernameNormalized: lookup.usernameNormalized },
-    select: authUserSelect,
-  });
-
-  if (!user) {
-    return null;
-  }
-
-  if (params.portal === "admin" && user.role !== UserRole.ADMIN) {
-    return null;
-  }
-
-  if (await verifyPasswordHash(params.password, user.passwordHash)) {
+async function authenticateUserPasswordOrResetCode(user: AuthUserRecord, password: string) {
+  if (await verifyPasswordHash(password, user.passwordHash)) {
     return user;
   }
 
-  const codeHash = hashSetupCode(params.password);
+  const codeHash = hashSetupCode(password);
   if (!codeHash) {
     return null;
   }
@@ -222,95 +266,194 @@ export async function authenticateWithCredentials(params: {
   });
 }
 
-export async function completeSetupWithCode(params: {
-  code: string;
-  username?: string | null;
-  newPassword: string;
-}) {
-  const codeHash = hashSetupCode(params.code);
-  if (!codeHash) {
-    throw new AuthFlowError("invalid_setup_code", "Setup code is invalid.", 400);
+export type LoginAttemptResult =
+  | {
+      status: "success";
+      user: AuthUserRecord;
+    }
+  | {
+      status: "pending" | "rejected" | "invalid";
+      user: null;
+    };
+
+export async function inspectLoginAttempt(params: {
+  identifier: string;
+  password: string;
+  portal: "admin" | "any";
+}): Promise<LoginAttemptResult> {
+  if (!params.password) {
+    return {
+      status: "invalid",
+      user: null,
+    };
   }
 
-  const usernameLookup = params.username
-    ? normalizeUsernameLookup(params.username)
-    : null;
-  const passwordHash = await hashPassword(params.newPassword);
-  const now = new Date();
-
-  return db.$transaction(async (tx) => {
-    const setupCode = await tx.setupCode.findUnique({
-      where: { codeHash },
-      select: {
-        id: true,
-        purpose: true,
-        userId: true,
-        usedAt: true,
-        revokedAt: true,
-        expiresAt: true,
-        user: {
-          select: authUserSelect,
-        },
-      },
-    });
-
-    if (!setupCode || setupCode.purpose !== SetupCodePurpose.ONBOARDING) {
-      throw new AuthFlowError("invalid_setup_code", "Setup code is invalid.", 400);
+  if (params.portal === "admin") {
+    const emailLookup = normalizeEmailLookup(params.identifier);
+    const usernameLookup = normalizeUsernameLookup(params.identifier);
+    if (!emailLookup && !usernameLookup) {
+      return {
+        status: "invalid",
+        user: null,
+      };
     }
 
-    if (
-      usernameLookup &&
-      setupCode.user.usernameNormalized !== usernameLookup.usernameNormalized
-    ) {
-      throw new AuthFlowError("invalid_setup_code", "Setup code is invalid.", 400);
-    }
-
-    if (setupCode.usedAt) {
-      throw new AuthFlowError("setup_code_used", "Setup code has already been used.", 409);
-    }
-
-    if (setupCode.revokedAt || setupCode.expiresAt <= now) {
-      throw new AuthFlowError("setup_code_expired", "Setup code has expired.", 410);
-    }
-
-    const consumed = await tx.setupCode.updateMany({
+    const user = await db.user.findFirst({
       where: {
-        id: setupCode.id,
-        usedAt: null,
-        revokedAt: null,
-        expiresAt: { gt: now },
+        role: UserRole.ADMIN,
+        OR: [
+          emailLookup ? { emailNormalized: emailLookup.emailNormalized } : undefined,
+          usernameLookup ? { usernameNormalized: usernameLookup.usernameNormalized } : undefined,
+        ].filter(Boolean) as Prisma.UserWhereInput[],
       },
-      data: {
-        usedAt: now,
-      },
+      select: authUserSelect,
     });
 
-    if (consumed.count !== 1) {
-      throw new AuthFlowError("invalid_setup_code", "Setup code is invalid.", 400);
+    if (!user) {
+      return {
+        status: "invalid",
+        user: null,
+      };
     }
 
-    const updatedUser = await tx.user.update({
-      where: { id: setupCode.userId },
-      data: {
-        passwordHash,
-        passwordUpdatedAt: now,
-        mustChangePassword: false,
-      },
-      select: currentUserSelect,
-    });
+    const authenticatedUser = await authenticateUserPasswordOrResetCode(user, params.password);
+    return authenticatedUser
+      ? { status: "success", user: authenticatedUser }
+      : { status: "invalid", user: null };
+  }
 
-    await tx.setupCode.updateMany({
-      where: {
-        userId: setupCode.userId,
-        usedAt: null,
-        revokedAt: null,
-      },
-      data: {
-        revokedAt: now,
-      },
-    });
+  const emailLookup = normalizeEmailLookup(params.identifier);
+  if (!emailLookup) {
+    return {
+      status: "invalid",
+      user: null,
+    };
+  }
 
-    return updatedUser;
+  const user = await db.user.findFirst({
+    where: { emailNormalized: emailLookup.emailNormalized },
+    select: authUserSelect,
+  });
+
+  if (user) {
+    const authenticatedUser = await authenticateUserPasswordOrResetCode(user, params.password);
+    return authenticatedUser
+      ? { status: "success", user: authenticatedUser }
+      : { status: "invalid", user: null };
+  }
+
+  const registrationRequest = await db.registrationRequest.findUnique({
+    where: { emailNormalized: emailLookup.emailNormalized },
+    select: {
+      status: true,
+    },
+  });
+
+  if (registrationRequest?.status === RegistrationRequestStatus.PENDING) {
+    return {
+      status: "pending",
+      user: null,
+    };
+  }
+
+  if (registrationRequest?.status === RegistrationRequestStatus.REJECTED) {
+    return {
+      status: "rejected",
+      user: null,
+    };
+  }
+
+  return {
+    status: "invalid",
+    user: null,
+  };
+}
+
+export async function authenticateWithCredentials(params: {
+  identifier: string;
+  password: string;
+  portal: "admin" | "any";
+}) {
+  const result = await inspectLoginAttempt(params);
+  return result.status === "success" ? result.user : null;
+}
+
+export async function registerUserApplication(params: {
+  firstName: string;
+  lastName: string;
+  email: string;
+  password: string;
+}) {
+  const firstName = normalizePersonName(params.firstName);
+  const lastName = normalizePersonName(params.lastName);
+  const email = normalizeEmail(params.email);
+  const emailNormalized = normalizeEmailKey(email);
+
+  const firstNameError = validatePersonName(firstName, "First name");
+  if (firstNameError) {
+    throw new AuthFlowError("invalid_first_name", firstNameError, 400);
+  }
+
+  const lastNameError = validatePersonName(lastName, "Last name");
+  if (lastNameError) {
+    throw new AuthFlowError("invalid_last_name", lastNameError, 400);
+  }
+
+  const emailError = validateEmail(email);
+  if (emailError) {
+    throw new AuthFlowError("invalid_email", emailError, 400);
+  }
+
+  const passwordError = validatePassword(params.password);
+  if (passwordError) {
+    throw new AuthFlowError("invalid_password", passwordError, 400);
+  }
+
+  const existingUser = await db.user.findFirst({
+    where: { emailNormalized },
+    select: {
+      id: true,
+    },
+  });
+
+  if (existingUser) {
+    throw new AuthFlowError(
+      "account_exists",
+      "An account with this email already exists. Log in with your email and password.",
+      409,
+    );
+  }
+
+  const passwordHash = await hashPassword(params.password);
+  const fullNameNormalized = toFullNameKey(firstName, lastName);
+
+  return db.registrationRequest.upsert({
+    where: { emailNormalized },
+    update: {
+      firstName,
+      lastName,
+      fullNameNormalized,
+      email,
+      passwordHash,
+      status: RegistrationRequestStatus.PENDING,
+      reviewerNote: null,
+      reviewedAt: null,
+      reviewedByUserId: null,
+      approvedUserId: null,
+    },
+    create: {
+      firstName,
+      lastName,
+      fullNameNormalized,
+      email,
+      emailNormalized,
+      passwordHash,
+      status: RegistrationRequestStatus.PENDING,
+    },
+    select: {
+      id: true,
+      status: true,
+    },
   });
 }
 
@@ -325,135 +468,203 @@ export async function getCurrentUserRecord(userId: string | null | undefined) {
   });
 }
 
-export async function issueSetupCodeForUser(params: {
-  userId: string;
-  issuedByUserId?: string | null;
-  purpose: SetupCodePurpose;
-  passwordResetRequestId?: string | null;
-  expiresInHours?: number | null;
-}) {
-  const plaintextCode = generateSetupCode();
-  const codeHash = hashSetupCode(plaintextCode);
-  const codeSuffix = getSetupCodeSuffix(plaintextCode);
-  const now = new Date();
-  const expiresAt = getSetupCodeExpiry(params.expiresInHours);
-
-  const result = await db.$transaction(async (tx) => {
-    const user = await tx.user.findUnique({
-      where: { id: params.userId },
-      select: currentUserSelect,
-    });
-
-    if (!user) {
-      throw new AuthFlowError("user_not_found", "User not found.", 404);
-    }
-
-    await tx.setupCode.updateMany({
-      where: {
-        userId: params.userId,
-        usedAt: null,
-        revokedAt: null,
-      },
-      data: {
-        revokedAt: now,
-      },
-    });
-
-    const setupCode = await tx.setupCode.create({
-      data: {
-        userId: params.userId,
-        issuedByUserId: params.issuedByUserId ?? null,
-        passwordResetRequestId: params.passwordResetRequestId ?? null,
-        purpose: params.purpose,
-        codeHash,
-        codeSuffix,
-        expiresAt,
-      },
-      select: {
-        id: true,
-        purpose: true,
-        codeSuffix: true,
-        createdAt: true,
-        expiresAt: true,
-        passwordResetRequestId: true,
-      },
-    });
-
-    const updatedUser = await tx.user.update({
-      where: { id: params.userId },
-      data:
-        params.purpose === SetupCodePurpose.PASSWORD_RESET
-          ? {
-              mustChangePassword: true,
-            }
-          : {},
-      select: currentUserSelect,
-    });
-
-    return {
-      user: updatedUser,
-      setupCode,
-    };
+export async function listRegistrationRequests(limit = 50) {
+  return db.registrationRequest.findMany({
+    orderBy: [{ createdAt: "desc" }],
+    take: limit,
+    select: registrationRequestListSelect,
   });
-
-  return {
-    user: result.user,
-    setupCode: {
-      ...result.setupCode,
-      code: plaintextCode,
-    },
-  };
 }
 
-export async function getSetupTokenMetadata(token: string): Promise<SetupTokenMetadata | null> {
-  const codeHash = hashSetupCode(token);
-  if (!codeHash) {
-    return null;
-  }
-
-  const setupCode = await db.setupCode.findUnique({
-    where: { codeHash },
+async function findBestMatchingShooterByName(
+  tx: Prisma.TransactionClient,
+  fullNameNormalized: string,
+) {
+  const candidates = await tx.user.findMany({
+    where: {
+      role: UserRole.SHOOTER,
+    },
     select: {
-      expiresAt: true,
-      usedAt: true,
-      revokedAt: true,
-      user: {
+      id: true,
+      username: true,
+      firstName: true,
+      lastName: true,
+      createdAt: true,
+      _count: {
         select: {
-          username: true,
-          role: true,
+          entries: true,
         },
       },
     },
   });
 
-  if (!setupCode) {
-    return null;
-  }
+  return candidates
+    .filter((user) => {
+      const candidateKey =
+        user.firstName && user.lastName
+          ? toFullNameKey(user.firstName, user.lastName)
+          : normalizePersonNameKey(user.username);
+      return candidateKey === fullNameNormalized;
+    })
+    .sort((left, right) => {
+      if (left._count.entries !== right._count.entries) {
+        return right._count.entries - left._count.entries;
+      }
 
-  const now = Date.now();
-  const status =
-    setupCode.usedAt || setupCode.revokedAt
-      ? "used"
-      : setupCode.expiresAt.getTime() <= now
-        ? "expired"
-        : "active";
-
-  return {
-    username: setupCode.user.username,
-    role: setupCode.user.role,
-    expiresAt: setupCode.expiresAt,
-    status,
-  };
+      return left.createdAt.getTime() - right.createdAt.getTime();
+    })[0] ?? null;
 }
 
-export async function createPasswordResetRequest(usernameInput: string) {
-  const lookup = normalizeUsernameLookup(usernameInput);
-  if (!lookup) {
-    throw new AuthFlowError("invalid_username", "Username is required.", 400);
+export async function approveRegistrationRequest(params: {
+  requestId: string;
+  reviewedByUserId: string;
+  reviewerNote?: string | null;
+}) {
+  const now = new Date();
+
+  return db.$transaction(async (tx) => {
+    const request = await tx.registrationRequest.findUnique({
+      where: { id: params.requestId },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        fullNameNormalized: true,
+        email: true,
+        emailNormalized: true,
+        passwordHash: true,
+        status: true,
+      },
+    });
+
+    if (!request) {
+      throw new AuthFlowError("registration_request_not_found", "Registration request not found.", 404);
+    }
+
+    if (request.status !== RegistrationRequestStatus.PENDING) {
+      throw new AuthFlowError(
+        "registration_request_already_reviewed",
+        "Registration request has already been reviewed.",
+        409,
+      );
+    }
+
+    const emailConflict = await tx.user.findFirst({
+      where: { emailNormalized: request.emailNormalized },
+      select: { id: true },
+    });
+
+    if (emailConflict) {
+      throw new AuthFlowError(
+        "registration_email_conflict",
+        "An account with this email already exists.",
+        409,
+      );
+    }
+
+    const matchedUser = await findBestMatchingShooterByName(tx, request.fullNameNormalized);
+    const displayName = buildDisplayName(request.firstName, request.lastName);
+
+    const approvedUser = matchedUser
+      ? await tx.user.update({
+          where: { id: matchedUser.id },
+          data: {
+            firstName: request.firstName,
+            lastName: request.lastName,
+            email: request.email,
+            emailNormalized: request.emailNormalized,
+            passwordHash: request.passwordHash,
+            passwordUpdatedAt: now,
+            mustChangePassword: false,
+          },
+          select: currentUserSelect,
+        })
+      : await tx.user.create({
+          data: {
+            username: displayName,
+            usernameNormalized: normalizeUsernameKey(displayName),
+            firstName: request.firstName,
+            lastName: request.lastName,
+            email: request.email,
+            emailNormalized: request.emailNormalized,
+            role: UserRole.SHOOTER,
+            passwordHash: request.passwordHash,
+            passwordUpdatedAt: now,
+            mustChangePassword: false,
+          },
+          select: currentUserSelect,
+        });
+
+    const reviewedRequest = await tx.registrationRequest.update({
+      where: { id: request.id },
+      data: {
+        status: RegistrationRequestStatus.APPROVED,
+        reviewerNote: params.reviewerNote ?? null,
+        reviewedAt: now,
+        reviewedByUserId: params.reviewedByUserId,
+        approvedUserId: approvedUser.id,
+      },
+      select: registrationRequestListSelect,
+    });
+
+    return {
+      request: reviewedRequest,
+      user: approvedUser,
+    };
+  });
+}
+
+export async function rejectRegistrationRequest(params: {
+  requestId: string;
+  reviewedByUserId: string;
+  reviewerNote?: string | null;
+}) {
+  const now = new Date();
+
+  const request = await db.registrationRequest.findUnique({
+    where: { id: params.requestId },
+    select: {
+      id: true,
+      status: true,
+    },
+  });
+
+  if (!request) {
+    throw new AuthFlowError("registration_request_not_found", "Registration request not found.", 404);
+  }
+
+  if (request.status !== RegistrationRequestStatus.PENDING) {
+    throw new AuthFlowError(
+      "registration_request_already_reviewed",
+      "Registration request has already been reviewed.",
+      409,
+    );
+  }
+
+  return db.registrationRequest.update({
+    where: { id: params.requestId },
+    data: {
+      status: RegistrationRequestStatus.REJECTED,
+      reviewerNote: params.reviewerNote ?? null,
+      reviewedAt: now,
+      reviewedByUserId: params.reviewedByUserId,
+    },
+    select: registrationRequestListSelect,
+  });
+}
+
+export async function createPasswordResetRequest(identifierInput: string) {
+  const emailLookup = normalizeEmailLookup(identifierInput);
+  const usernameLookup = emailLookup ? null : normalizeUsernameLookup(identifierInput);
+
+  if (!emailLookup && !usernameLookup) {
+    throw new AuthFlowError("invalid_identifier", "Email or username is required.", 400);
   }
 
   const user = await db.user.findFirst({
-    where: { usernameNormalized: lookup.usernameNormalized },
+    where: emailLookup
+      ? { emailNormalized: emailLookup.emailNormalized }
+      : { usernameNormalized: usernameLookup?.usernameNormalized },
     select: {
       id: true,
     },
@@ -715,110 +926,11 @@ export async function updateCurrentUserPassword(params: {
   });
 }
 
-export async function completeSetupPassword(params: {
-  token: string;
-  newPassword: string;
-}) {
-  const codeHash = hashSetupCode(params.token);
-  if (!codeHash) {
-    throw new AuthFlowError("invalid_setup_token", "Setup token is invalid.", 400);
-  }
-
-  const now = new Date();
-  const passwordHash = await hashPassword(params.newPassword);
-
-  return db.$transaction(async (tx) => {
-    const setupCode = await tx.setupCode.findUnique({
-      where: { codeHash },
-      select: {
-        id: true,
-        userId: true,
-        passwordResetRequestId: true,
-        purpose: true,
-        expiresAt: true,
-        usedAt: true,
-        revokedAt: true,
-        user: {
-          select: currentUserSelect,
-        },
-      },
-    });
-
-    if (!setupCode) {
-      throw new AuthFlowError("invalid_setup_token", "Setup token is invalid.", 400);
-    }
-
-    if (setupCode.usedAt || setupCode.revokedAt) {
-      throw new AuthFlowError("used_setup_token", "Setup token has already been used.", 409);
-    }
-
-    if (setupCode.expiresAt <= now) {
-      throw new AuthFlowError("expired_setup_token", "Setup token has expired.", 410);
-    }
-
-    const consumed = await tx.setupCode.updateMany({
-      where: {
-        id: setupCode.id,
-        usedAt: null,
-        revokedAt: null,
-        expiresAt: { gt: now },
-      },
-      data: {
-        usedAt: now,
-      },
-    });
-
-    if (consumed.count !== 1) {
-      throw new AuthFlowError("used_setup_token", "Setup token has already been used.", 409);
-    }
-
-    const updatedUser = await tx.user.update({
-      where: { id: setupCode.userId },
-      data: {
-        passwordHash,
-        passwordUpdatedAt: now,
-        mustChangePassword: false,
-      },
-      select: currentUserSelect,
-    });
-
-    await tx.setupCode.updateMany({
-      where: {
-        userId: setupCode.userId,
-        id: { not: setupCode.id },
-        usedAt: null,
-        revokedAt: null,
-      },
-      data: {
-        revokedAt: now,
-      },
-    });
-
-    await tx.passwordResetRequest.updateMany({
-      where: {
-        userId: setupCode.userId,
-        status: PasswordResetRequestStatus.APPROVED,
-        completedAt: null,
-      },
-      data: {
-        status: PasswordResetRequestStatus.COMPLETED,
-        completedAt: now,
-      },
-    });
-
-    return {
-      user: updatedUser,
-      setupCode: {
-        purpose: setupCode.purpose,
-      },
-    };
-  });
-}
-
 export function buildSessionUser(user: CurrentAuthUser) {
   return {
     id: user.id,
     username: user.username,
+    email: user.email,
     role: user.role,
     mustChangePassword: user.mustChangePassword,
     passwordUpdatedAt: user.passwordUpdatedAt.toISOString(),
@@ -829,6 +941,9 @@ export function serializeCurrentUser(user: CurrentAuthUser) {
   return {
     id: user.id,
     username: user.username,
+    firstName: user.firstName,
+    lastName: user.lastName,
+    email: user.email,
     role: user.role,
     mustChangePassword: user.mustChangePassword,
     createdAt: user.createdAt,

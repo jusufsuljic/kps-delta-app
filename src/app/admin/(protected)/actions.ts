@@ -5,12 +5,18 @@ import { UserRole } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 
 import { requireAdminSession } from "@/lib/auth";
+import {
+  approveRegistrationRequest,
+  rejectRegistrationRequest,
+} from "@/lib/auth-backend";
 import { db } from "@/lib/db";
 import {
   buildLeaderboardSnapshot,
   seasonLeaderboardInclude,
 } from "@/lib/leaderboard";
 import {
+  normalizeEmail,
+  normalizeEmailKey,
   normalizeDrillName,
   normalizeSeasonName,
   normalizeUsername,
@@ -19,6 +25,7 @@ import {
   readRequiredId,
   readOptionalPassword,
   validateDrillName,
+  validateEmail,
   validateSeasonName,
   validatePassword,
   validateUsername,
@@ -31,8 +38,8 @@ function revalidateApp() {
   revalidatePath("/admin/dashboard");
   revalidatePath("/admin/leaderboard");
   revalidatePath("/login");
+  revalidatePath("/register");
   revalidatePath("/profile");
-  revalidatePath("/setup");
 }
 
 async function getActiveSeason() {
@@ -42,21 +49,12 @@ async function getActiveSeason() {
   });
 }
 
-async function findOrCreateUser(usernameInput: string) {
+async function findShooterUser(usernameInput: string) {
   const username = normalizeUsername(usernameInput);
   const usernameNormalized = normalizeUsernameKey(username);
 
-  const existing = await db.user.findFirst({
-    where: { usernameNormalized },
-  });
-
-  if (existing) {
-    return existing;
-  }
-
-  return db.user.create({
-    data: {
-      username,
+  return db.user.findFirst({
+    where: {
       usernameNormalized,
       role: UserRole.SHOOTER,
     },
@@ -67,45 +65,12 @@ function readUserRole(value: FormDataEntryValue | null | undefined) {
   return value === UserRole.ADMIN ? UserRole.ADMIN : UserRole.SHOOTER;
 }
 
-export async function createUserAction(formData: FormData) {
-  await requireAdminSession();
-
-  const username = normalizeUsername(formData.get("username"));
-  const password = readOptionalPassword(formData.get("password"));
-  const role = readUserRole(formData.get("role"));
-  if (validateUsername(username)) {
-    return;
-  }
-
-  if (password !== null && validatePassword(password)) {
-    return;
-  }
-
-  const usernameNormalized = normalizeUsernameKey(username);
-  const exists = await db.user.findFirst({ where: { usernameNormalized } });
-  if (exists) {
-    return;
-  }
-
-  await db.user.create({
-    data: {
-      username,
-      usernameNormalized,
-      role,
-      passwordHash: password ? await hashPassword(password) : null,
-      passwordUpdatedAt: password ? new Date() : undefined,
-      mustChangePassword: false,
-    },
-  });
-
-  revalidateApp();
-}
-
 export async function updateUserAction(formData: FormData) {
   await requireAdminSession();
 
   const userId = readRequiredId(formData.get("userId"));
   const username = normalizeUsername(formData.get("username"));
+  const email = normalizeEmail(formData.get("email"));
   const password = readOptionalPassword(formData.get("password"));
   const role = readUserRole(formData.get("role"));
 
@@ -113,15 +78,23 @@ export async function updateUserAction(formData: FormData) {
     return;
   }
 
+  if (email && validateEmail(email)) {
+    return;
+  }
+
   if (password !== null && validatePassword(password)) {
     return;
   }
 
   const usernameNormalized = normalizeUsernameKey(username);
+  const emailNormalized = email ? normalizeEmailKey(email) : null;
   const conflictingUser = await db.user.findFirst({
     where: {
-      usernameNormalized,
       NOT: { id: userId },
+      OR: [
+        { usernameNormalized },
+        ...(emailNormalized ? [{ emailNormalized }] : []),
+      ],
     },
   });
 
@@ -134,6 +107,8 @@ export async function updateUserAction(formData: FormData) {
     data: {
       username,
       usernameNormalized,
+      email: email || null,
+      emailNormalized,
       role,
       ...(password
         ? {
@@ -351,7 +326,10 @@ export async function createEntryAction(formData: FormData) {
     return;
   }
 
-  const user = await findOrCreateUser(username);
+  const user = await findShooterUser(username);
+  if (!user) {
+    return;
+  }
 
   await db.entry.create({
     data: {
@@ -398,7 +376,10 @@ export async function updateEntryAction(formData: FormData) {
     return;
   }
 
-  const user = await findOrCreateUser(username);
+  const user = await findShooterUser(username);
+  if (!user) {
+    return;
+  }
 
   await db.entry.update({
     where: { id: entryId },
@@ -452,6 +433,38 @@ export async function publishLeaderboardAction(formData: FormData) {
       publishedAt,
       publishedSnapshot: snapshot,
     },
+  });
+
+  revalidateApp();
+}
+
+export async function approveRegistrationRequestAction(formData: FormData) {
+  const admin = await requireAdminSession();
+
+  const requestId = readRequiredId(formData.get("requestId"));
+  if (!requestId) {
+    return;
+  }
+
+  await approveRegistrationRequest({
+    requestId,
+    reviewedByUserId: admin.id,
+  });
+
+  revalidateApp();
+}
+
+export async function rejectRegistrationRequestAction(formData: FormData) {
+  const admin = await requireAdminSession();
+
+  const requestId = readRequiredId(formData.get("requestId"));
+  if (!requestId) {
+    return;
+  }
+
+  await rejectRegistrationRequest({
+    requestId,
+    reviewedByUserId: admin.id,
   });
 
   revalidateApp();

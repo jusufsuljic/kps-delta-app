@@ -13,9 +13,9 @@ function redirectToChangePassword(request: Request, href: string) {
 
 export async function POST(request: Request) {
   const body = await readStringBody(request);
-  const username = (body.username ?? "").trim();
+  const email = (body.username ?? body.email ?? "").trim();
 
-  if (!username.trim()) {
+  if (!email.trim()) {
     return redirectToChangePassword(
       request,
       buildChangePasswordHref({
@@ -25,13 +25,13 @@ export async function POST(request: Request) {
     );
   }
 
-  await createPasswordResetRequest(username);
+  await createPasswordResetRequest(email);
 
   return redirectToChangePassword(
     request,
     buildChangePasswordHref({
       mode: "request-reset",
-      username,
+      email,
       success: "requested",
     }),
   );

@@ -15,6 +15,7 @@
   --bronze: #bb7c4a;
   --radius: 16px;
   --shell: min(1200px, calc(100vw - 4rem));
+  --eyebrow: #a7a7a7;
 }
 
 html {
@@ -245,7 +246,7 @@ button {
 }
 
 .section-eyebrow {
-  color: var(--text);
+  color: var(--eyebrow);
   font-size: 0.85rem;
   font-weight: 700;
   letter-spacing: 0.22em;
@@ -347,6 +348,50 @@ button {
   line-height: 1.35;
 }
 
+.live-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.live-status__dot {
+  position: relative;
+  width: 11px;
+  height: 11px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  background: #63ff8b;
+  box-shadow:
+    0 0 0 1px rgba(99, 255, 139, 0.28),
+    0 0 14px rgba(99, 255, 139, 0.5);
+}
+
+.live-status__dot::after {
+  content: "";
+  position: absolute;
+  inset: -7px;
+  border-radius: inherit;
+  border: 1px solid rgba(99, 255, 139, 0.42);
+  animation: livePulse 1.8s ease-out infinite;
+}
+
+@keyframes livePulse {
+  0% {
+    transform: scale(0.7);
+    opacity: 0.8;
+  }
+
+  70% {
+    transform: scale(1.35);
+    opacity: 0;
+  }
+
+  100% {
+    transform: scale(1.35);
+    opacity: 0;
+  }
+}
+
 .dashboard-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -364,6 +409,15 @@ button {
 }
 
 .dashboard-grid--shooters > .panel {
+  height: 100%;
+}
+
+.dashboard-grid--accounts {
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.85fr);
+  align-items: stretch;
+}
+
+.dashboard-grid--accounts > .panel {
   height: 100%;
 }
 
@@ -1013,6 +1067,7 @@ button {
 .panel-note {
   color: var(--muted);
   font-size: 0.92rem;
+  margin-top: 0.3rem;
 }
 
 .detail-stats {
@@ -1143,6 +1198,7 @@ button {
 
   .dashboard-grid,
   .dashboard-grid--balanced,
+  .dashboard-grid--accounts,
   .dashboard-grid--shooters,
   .dashboard-grid--preview,
   .profile-history-grid {

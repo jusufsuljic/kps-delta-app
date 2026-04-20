@@ -138,8 +138,8 @@ export function PasswordResetRequestsPanel({
 
       <p className="notice-copy">
         Users can request a reset without exposing whether the username exists. Approving a request
-        issues a one-time reset code that the user can log in with, then they are forced to change
-        the password immediately.
+        issues a one-time reset code that the user can log in with using their email, then they are
+        forced to change the password immediately.
       </p>
 
       {error ? <p className="error-banner">{error}</p> : null}

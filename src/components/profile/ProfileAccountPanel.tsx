@@ -4,6 +4,7 @@ import { formatDateTime } from "@/lib/format";
 
 type ProfileAccountPanelProps = {
   username: string;
+  email: string | null;
   role: string;
   joinedAt: Date;
   passwordUpdatedAt: Date | null;
@@ -11,11 +12,14 @@ type ProfileAccountPanelProps = {
 
 export function ProfileAccountPanel({
   username,
+  email,
   role,
   joinedAt,
   passwordUpdatedAt,
 }: ProfileAccountPanelProps) {
-  const requestResetHref = `/change-password?mode=request-reset&username=${encodeURIComponent(username)}`;
+  const requestResetHref = `/change-password?mode=request-reset${
+    email ? `&email=${encodeURIComponent(email)}` : ""
+  }`;
 
   return (
     <section className="panel profile-section">
@@ -39,6 +43,10 @@ export function ProfileAccountPanel({
         <div className="readonly-field">
           <span className="field__label">Role</span>
           <div className="readonly-field__value">{role}</div>
+        </div>
+        <div className="readonly-field">
+          <span className="field__label">Email</span>
+          <div className="readonly-field__value">{email ?? "Not set"}</div>
         </div>
         <div className="readonly-field">
           <span className="field__label">Joined</span>
@@ -71,8 +79,8 @@ export function ProfileAccountPanel({
             <h3>Recovery</h3>
           </div>
           <p className="notice-copy">
-            If you lose access, request a reset. The admin dashboard or future auth backend can
-            issue a reset or setup link from there.
+            If you lose access, request a reset. An admin can approve the request and share a
+            one-time reset code with you offline.
           </p>
           <div className="button-row">
             <Link href={requestResetHref} className="button button--ghost">

@@ -9,6 +9,7 @@ type PasswordChangeMode = "authenticated" | "forced" | "request-reset";
 type ChangePasswordPageProps = {
   searchParams: Promise<{
     mode?: string;
+    email?: string;
     username?: string;
     error?: string;
     success?: string;
@@ -55,7 +56,7 @@ export default async function ChangePasswordPage({
         <section className="dashboard-grid auth-grid auth-grid--single">
           <PasswordChangePanel
             mode={mode}
-            username={params.username}
+            email={params.email ?? params.username}
             error={params.error}
             success={params.success}
           />
