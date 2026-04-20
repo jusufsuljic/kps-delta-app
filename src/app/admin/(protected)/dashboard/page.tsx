@@ -1,9 +1,7 @@
 import Link from "next/link";
 
 import { AppHeader } from "@/components/AppHeader";
-import { OnboardingExportPanel } from "@/components/admin/OnboardingExportPanel";
 import { PasswordResetRequestsPanel } from "@/components/admin/PasswordResetRequestsPanel";
-import { SetupCodeManager } from "@/components/admin/SetupCodeManager";
 import { LeaderboardPanel } from "@/components/LeaderboardPanel";
 import { isShooterAuthenticated } from "@/lib/auth";
 import { formatDateTime, formatSeconds } from "@/lib/format";
@@ -14,21 +12,21 @@ import {
 } from "@/lib/leaderboard";
 import {
   PasswordResetRequestStatus,
-  SetupCodePurpose,
   UserRole,
 } from "@prisma/client";
 
 import {
+  approveRegistrationRequestAction,
   createDrillAction,
   createEntryAction,
   createSeasonAction,
-  createUserAction,
   deleteDrillAction,
   deleteEntryAction,
   deleteSeasonAction,
   deleteUserAction,
   finishSeasonAction,
   publishLeaderboardAction,
+  rejectRegistrationRequestAction,
   updateDrillAction,
   updateEntryAction,
   updateSeasonAction,
@@ -152,6 +150,26 @@ function getShooterStats(
   };
 }
 
+function getAccountStateLabel(user: {
+  role: UserRole;
+  email: string | null;
+  passwordHash: string | null;
+}) {
+  if (user.role === UserRole.ADMIN) {
+    return user.passwordHash ? "ACTIVE" : "NO PASSWORD";
+  }
+
+  if (user.email && user.passwordHash) {
+    return "REGISTERED";
+  }
+
+  if (user.email) {
+    return "PENDING ACCESS";
+  }
+
+  return "NOT REGISTERED";
+}
+
 export default async function DashboardPage({ searchParams }: DashboardPageProps) {
   const params = await searchParams;
   const currentTab = resolveTab(params.tab);
@@ -159,7 +177,6 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const selectedShooterId = params.shooter?.trim() ?? "";
   const accountQuery = params.accountQ?.trim() ?? "";
   const selectedAccountId = params.account?.trim() ?? "";
-  const now = new Date();
   const notice =
     params.notice === "password-updated"
       ? "Password updated successfully."
@@ -182,6 +199,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     totalEntries,
     selectedShooter,
     selectedAccount,
+    registrationRequests,
     passwordResetRequests,
   ] =
     await Promise.all([
@@ -191,22 +209,6 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
             select: {
               entries: true,
               passwordResetRequests: true,
-            },
-          },
-          setupCodes: {
-            where: {
-              purpose: SetupCodePurpose.ONBOARDING,
-              usedAt: null,
-              revokedAt: null,
-              expiresAt: { gt: now },
-            },
-            orderBy: [{ createdAt: "desc" }],
-            take: 1,
-            select: {
-              id: true,
-              codeSuffix: true,
-              createdAt: true,
-              expiresAt: true,
             },
           },
           passwordResetRequests: {
@@ -260,22 +262,6 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                   passwordResetRequests: true,
                 },
               },
-              setupCodes: {
-                where: {
-                  purpose: SetupCodePurpose.ONBOARDING,
-                  usedAt: null,
-                  revokedAt: null,
-                  expiresAt: { gt: now },
-                },
-                orderBy: [{ createdAt: "desc" }],
-                take: 1,
-                select: {
-                  id: true,
-                  codeSuffix: true,
-                  createdAt: true,
-                  expiresAt: true,
-                },
-              },
               passwordResetRequests: {
                 orderBy: [{ createdAt: "desc" }],
                 take: 8,
@@ -324,22 +310,6 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                   passwordResetRequests: true,
                 },
               },
-              setupCodes: {
-                where: {
-                  purpose: SetupCodePurpose.ONBOARDING,
-                  usedAt: null,
-                  revokedAt: null,
-                  expiresAt: { gt: now },
-                },
-                orderBy: [{ createdAt: "desc" }],
-                take: 1,
-                select: {
-                  id: true,
-                  codeSuffix: true,
-                  createdAt: true,
-                  expiresAt: true,
-                },
-              },
               passwordResetRequests: {
                 orderBy: [{ createdAt: "desc" }],
                 take: 8,
@@ -371,6 +341,26 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
             },
           })
         : Promise.resolve(null),
+      db.registrationRequest.findMany({
+        take: 50,
+        orderBy: [{ createdAt: "desc" }],
+        include: {
+          reviewedBy: {
+            select: {
+              id: true,
+              username: true,
+            },
+          },
+          approvedUser: {
+            select: {
+              id: true,
+              username: true,
+              email: true,
+              role: true,
+            },
+          },
+        },
+      }),
       db.passwordResetRequest.findMany({
         take: 20,
         orderBy: [{ createdAt: "desc" }],
@@ -416,12 +406,20 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     : shooters;
   const filteredAccounts = accountQuery
     ? users.filter((user) =>
-        user.username.toLocaleLowerCase("en-US").includes(accountQuery.toLocaleLowerCase("en-US")),
+        user.username.toLocaleLowerCase("en-US").includes(accountQuery.toLocaleLowerCase("en-US")) ||
+        user.email?.toLocaleLowerCase("en-US").includes(accountQuery.toLocaleLowerCase("en-US")),
       )
     : users;
   const totalAdmins = users.filter((user) => user.role === UserRole.ADMIN).length;
   const totalShooters = shooters.length;
-  const pendingSetupShooterCount = shooters.filter((user) => !user.passwordHash).length;
+  const registeredShooterCount = shooters.filter((user) => Boolean(user.email && user.passwordHash)).length;
+  const pendingRegistrationRequests = registrationRequests.filter(
+    (request) => request.status === "PENDING",
+  );
+  const pendingRegistrationCount = pendingRegistrationRequests.length;
+  const rejectedRegistrationCount = registrationRequests.filter(
+    (request) => request.status === "REJECTED",
+  ).length;
 
   const liveSnapshot = activeSeason
     ? buildLeaderboardSnapshot(activeSeason, { publishedAt: activeSeason.publishedAt })
@@ -487,7 +485,14 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           </article>
           <article className="panel stat-card">
             <p className="section-eyebrow">LAST PUBLISH</p>
-            <strong>{activeSeason?.publishedAt ? "LIVE" : "PENDING"}</strong>
+            {activeSeason?.publishedAt ? (
+              <div className="live-status">
+                <span className="live-status__dot" aria-hidden="true" />
+                <strong>LIVE</strong>
+              </div>
+            ) : (
+              <strong>PENDING</strong>
+            )}
             <span>{formatDateTime(activeSeason?.publishedAt ?? null)}</span>
           </article>
         </section>
@@ -815,7 +820,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
         {currentTab === "accounts" ? (
           <section className="content-stack">
-            <section className="dashboard-grid dashboard-grid--shooters">
+            <section className="dashboard-grid dashboard-grid--accounts">
               <article className="panel">
                 <div className="panel-header">
                   <h2>Search Accounts</h2>
@@ -824,13 +829,13 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                 <form action="/admin/dashboard" method="get" className="form-grid form-grid--single">
                   <input type="hidden" name="tab" value="accounts" />
                   <label className="field">
-                    <span className="field__label">Search By Username</span>
+                    <span className="field__label">Search By Name Or Email</span>
                     <input
                       className="text-input"
                       name="accountQ"
                       list="dashboard-account-search"
                       defaultValue={accountQuery}
-                      placeholder="Start typing an account"
+                      placeholder="Start typing a name or email"
                     />
                   </label>
                   <div className="button-row">
@@ -844,56 +849,90 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                 </form>
 
                 <datalist id="dashboard-account-search">
-                  {users.map((user) => (
-                    <option key={user.id} value={user.username} />
-                  ))}
+                  {users.flatMap((user) =>
+                    [user.username, user.email].filter(Boolean).map((value) => (
+                      <option key={`${user.id}-${value}`} value={value ?? ""} />
+                    )),
+                  )}
                 </datalist>
               </article>
 
               <article className="panel">
                 <div className="panel-header">
-                  <h2>New User Account</h2>
+                  <h2>Registration Status</h2>
                 </div>
 
-                <form action={createUserAction} className="form-grid form-grid--single">
-                  <label className="field">
-                    <span className="field__label">Username</span>
-                    <input
-                      className="text-input"
-                      name="username"
-                      placeholder="Shooter name"
-                      required
-                    />
-                  </label>
-                  <label className="field">
-                    <span className="field__label">Role</span>
-                    <select className="text-input" name="role" defaultValue={UserRole.SHOOTER}>
-                      <option value={UserRole.SHOOTER}>Shooter</option>
-                      <option value={UserRole.ADMIN}>Admin</option>
-                    </select>
-                  </label>
-                  <label className="field">
-                    <span className="field__label">Initial Password</span>
-                    <input
-                      className="text-input"
-                      name="password"
-                      type="password"
-                      autoComplete="new-password"
-                      placeholder="Optional, minimum 8 characters"
-                    />
-                  </label>
-                  <p className="panel-note">
-                    Leave the password empty to keep the account in setup-pending state. Adding a
-                    password enables immediate sign-in for the selected role.
-                  </p>
-                  <button type="submit" className="button button--primary">
-                    ADD USER
-                  </button>
-                </form>
+                <div className="detail-stats detail-stats--compact">
+                  <div className="detail-stat">
+                    <span>Registered shooters</span>
+                    <strong>{registeredShooterCount}</strong>
+                  </div>
+                  <div className="detail-stat">
+                    <span>Pending requests</span>
+                    <strong>{pendingRegistrationCount}</strong>
+                  </div>
+                  <div className="detail-stat">
+                    <span>Rejected requests</span>
+                    <strong>{rejectedRegistrationCount}</strong>
+                  </div>
+                  <div className="detail-stat">
+                    <span>Admin accounts</span>
+                    <strong>{totalAdmins}</strong>
+                  </div>
+                </div>
               </article>
 
-              <OnboardingExportPanel pendingShooterCount={pendingSetupShooterCount} />
             </section>
+
+            {accountQuery ? (
+              <article className="panel">
+                <div className="panel-header">
+                  <h2>Search Results</h2>
+                  <span className="panel-note">{filteredAccounts.length} shown</span>
+                </div>
+
+                <div className="entity-list entity-list--scroll">
+                  {filteredAccounts.length > 0 ? (
+                    filteredAccounts.map((user) => (
+                      <div key={user.id} className="entity-card entity-card--row">
+                        <div className="entity-meta entity-meta--stack">
+                          <div className="entity-badge-row">
+                            <span className="status-badge status-badge--neutral">{user.role}</span>
+                            <span
+                              className={`status-badge ${
+                                user.email && user.passwordHash
+                                  ? "status-badge--ok"
+                                  : "status-badge--warn"
+                              }`}
+                            >
+                              {getAccountStateLabel(user)}
+                            </span>
+                            {user.passwordResetRequests[0] ? (
+                              <span className="status-badge status-badge--warn">RESET PENDING</span>
+                            ) : null}
+                          </div>
+                          <strong>{user.username}</strong>
+                          <span>{user.email ?? "No approved email yet"}</span>
+                          <span>{user._count.entries} attempts</span>
+                          <span>Created {formatDateTime(user.createdAt)}</span>
+                        </div>
+                        <Link
+                          href={buildDashboardHref("accounts", {
+                            accountQ: accountQuery || null,
+                            account: user.id,
+                          })}
+                          className="button button--ghost"
+                        >
+                          MANAGE ACCOUNT
+                        </Link>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="empty-state">No accounts match that search.</div>
+                  )}
+                </div>
+              </article>
+            ) : null}
 
             {selectedAccount ? (
               <article className="panel">
@@ -922,13 +961,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                   </div>
                   <div className="detail-stat">
                     <span>Account state</span>
-                    <strong>
-                      {selectedAccount.passwordHash
-                        ? "READY"
-                        : selectedAccount.role === UserRole.ADMIN
-                          ? "NO PASSWORD"
-                          : "SETUP"}
-                    </strong>
+                    <strong>{getAccountStateLabel(selectedAccount)}</strong>
                   </div>
                   <div className="detail-stat">
                     <span>Pending resets</span>
@@ -941,19 +974,15 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                     </strong>
                   </div>
                   <div className="detail-stat">
+                    <span>Email</span>
+                    <strong>{selectedAccount.email ?? "NOT SET"}</strong>
+                  </div>
+                  <div className="detail-stat">
                     <span>Password updated</span>
                     <strong>
                       {selectedAccount.passwordHash
                         ? formatDateTime(selectedAccount.passwordUpdatedAt)
                         : "NOT SET"}
-                    </strong>
-                  </div>
-                  <div className="detail-stat">
-                    <span>Onboarding code</span>
-                    <strong>
-                      {selectedAccount.setupCodes[0]
-                        ? `****-${selectedAccount.setupCodes[0].codeSuffix}`
-                        : "NONE"}
                     </strong>
                   </div>
                 </div>
@@ -967,12 +996,14 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                       </div>
                       <span
                         className={`status-badge ${
-                          selectedAccount.passwordHash
+                          selectedAccount.email && selectedAccount.passwordHash
                             ? "status-badge--ok"
                             : "status-badge--warn"
                         }`}
                       >
-                        {selectedAccount.passwordHash ? "ACCESS ENABLED" : "SETUP PENDING"}
+                        {selectedAccount.email && selectedAccount.passwordHash
+                          ? "ACCESS ENABLED"
+                          : "REGISTRATION REQUIRED"}
                       </span>
                     </div>
 
@@ -985,6 +1016,17 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                           name="username"
                           defaultValue={selectedAccount.username}
                           required
+                        />
+                      </label>
+
+                      <label className="field">
+                        <span className="field__label">Email</span>
+                        <input
+                          className="text-input"
+                          name="email"
+                          type="email"
+                          defaultValue={selectedAccount.email ?? ""}
+                          placeholder="name@example.com"
                         />
                       </label>
 
@@ -1002,7 +1044,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
                       <label className="field">
                         <span className="field__label">
-                          {selectedAccount.passwordHash ? "Rotate Password" : "Enable Access"}
+                          {selectedAccount.passwordHash ? "Rotate Password" : "Set Password"}
                         </span>
                         <input
                           className="text-input"
@@ -1023,27 +1065,11 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                     </form>
 
                     <p className="panel-note">
-                      Passwords can be set directly here for immediate access, or you can leave the
-                      account without a password and issue an onboarding setup code instead.
+                      Public registration is now the only path for new shooter access. Existing
+                      accounts can still be maintained here after approval.
                     </p>
                   </div>
 
-                  <SetupCodeManager
-                    userId={selectedAccount.id}
-                    username={selectedAccount.username}
-                    activeSetupCode={
-                      selectedAccount.setupCodes[0]
-                        ? {
-                            codeSuffix: selectedAccount.setupCodes[0].codeSuffix,
-                            createdAt: selectedAccount.setupCodes[0].createdAt.toISOString(),
-                            expiresAt: selectedAccount.setupCodes[0].expiresAt.toISOString(),
-                          }
-                        : null
-                    }
-                  />
-                </div>
-
-                <div className="dashboard-grid dashboard-grid--balanced">
                   <div className="subpanel">
                     <div className="panel-header">
                       <h3>Reset Activity</h3>
@@ -1110,60 +1136,53 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
               </article>
             ) : null}
 
-            <article className="panel">
-              <div className="panel-header">
-                <h2>{accountQuery ? "Search Results" : "All Accounts"}</h2>
-                <span className="panel-note">{filteredAccounts.length} shown</span>
-              </div>
+            {pendingRegistrationRequests.length > 0 ? (
+              <article className="panel">
+                <div className="panel-header">
+                  <h2>Registration Requests</h2>
+                  <span className="panel-note">{pendingRegistrationRequests.length} pending</span>
+                </div>
 
-              <div className="entity-list entity-list--scroll">
-                {filteredAccounts.length > 0 ? (
-                  filteredAccounts.map((user) => (
-                    <div key={user.id} className="entity-card entity-card--row">
+                <div className="entity-list entity-list--scroll">
+                  {pendingRegistrationRequests.map((request) => (
+                    <div key={request.id} className="entity-card">
                       <div className="entity-meta entity-meta--stack">
                         <div className="entity-badge-row">
-                          <span className="status-badge status-badge--neutral">{user.role}</span>
-                          <span
-                            className={`status-badge ${
-                              user.passwordHash ? "status-badge--ok" : "status-badge--warn"
-                            }`}
-                          >
-                            {user.passwordHash ? "READY" : "SETUP"}
-                          </span>
-                          {user.passwordResetRequests[0] ? (
-                            <span className="status-badge status-badge--warn">RESET PENDING</span>
-                          ) : null}
+                          <span className="status-badge status-badge--warn">{request.status}</span>
                         </div>
-                        <strong>{user.username}</strong>
-                        <span>{user._count.entries} attempts</span>
-                        <span>
-                          {user.passwordHash
-                            ? "Access enabled"
-                            : user.role === UserRole.ADMIN
-                              ? "No password set yet"
-                              : "Setup code required"}
-                        </span>
-                        {user.setupCodes[0] ? (
-                          <span>{`Setup code ****-${user.setupCodes[0].codeSuffix}`}</span>
+                        <strong>{`${request.firstName} ${request.lastName}`}</strong>
+                        <span>{request.email}</span>
+                        <span>Submitted {formatDateTime(request.createdAt)}</span>
+                        {request.approvedUser ? (
+                          <span>{`Attached to ${request.approvedUser.username}`}</span>
                         ) : null}
-                        <span>Created {formatDateTime(user.createdAt)}</span>
+                        {request.reviewedBy ? (
+                          <span>{`Reviewed by ${request.reviewedBy.username} on ${formatDateTime(
+                            request.reviewedAt,
+                          )}`}</span>
+                        ) : null}
+                        {request.reviewerNote ? <span>{request.reviewerNote}</span> : null}
                       </div>
-                      <Link
-                        href={buildDashboardHref("accounts", {
-                          accountQ: accountQuery || null,
-                          account: user.id,
-                        })}
-                        className="button button--ghost"
-                      >
-                        MANAGE ACCOUNT
-                      </Link>
+
+                      <div className="button-row">
+                        <form action={approveRegistrationRequestAction}>
+                          <input type="hidden" name="requestId" value={request.id} />
+                          <button type="submit" className="button button--primary">
+                            APPROVE
+                          </button>
+                        </form>
+                        <form action={rejectRegistrationRequestAction}>
+                          <input type="hidden" name="requestId" value={request.id} />
+                          <button type="submit" className="button button--ghost">
+                            REJECT
+                          </button>
+                        </form>
+                      </div>
                     </div>
-                  ))
-                ) : (
-                  <div className="empty-state">No accounts match that search.</div>
-                )}
-              </div>
-            </article>
+                  ))}
+                </div>
+              </article>
+            ) : null}
 
             <PasswordResetRequestsPanel
               requests={passwordResetRequests.map((request) => ({
@@ -1197,12 +1216,12 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                   <form action={createEntryAction} className="form-grid">
                     <input type="hidden" name="seasonId" value={activeSeason.id} />
                     <label className="field field--span-2">
-                      <span className="field__label">User Search / New Username</span>
+                      <span className="field__label">Shooter</span>
                       <input
                         className="text-input"
                         list="registered-users"
                         name="username"
-                        placeholder="Search existing or type a new shooter"
+                        placeholder="Search an approved shooter"
                         required
                       />
                     </label>
@@ -1240,10 +1259,15 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                   </form>
 
                   <datalist id="registered-users">
-                    {users.map((user) => (
+                    {shooters.map((user) => (
                       <option key={user.id} value={user.username} />
                     ))}
                   </datalist>
+
+                  <p className="panel-note">
+                    Entries can only be logged for existing shooter profiles. New people must
+                    register and be approved first.
+                  </p>
                 </>
               ) : (
                 <div className="empty-state">

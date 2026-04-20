@@ -17,6 +17,7 @@ const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
 type SessionUserFields = {
   id: string;
   username: string;
+  email: string | null;
   role: UserRole;
   mustChangePassword: boolean;
   passwordUpdatedAt: string;
@@ -35,6 +36,7 @@ function readSessionUser(session: Session | null): SessionUserFields | null {
   if (
     typeof user.id !== "string" ||
     typeof user.username !== "string" ||
+    !(typeof user.email === "string" || user.email === null || typeof user.email === "undefined") ||
     !isUserRole(user.role) ||
     typeof user.mustChangePassword !== "boolean" ||
     typeof user.passwordUpdatedAt !== "string"
@@ -45,6 +47,7 @@ function readSessionUser(session: Session | null): SessionUserFields | null {
   return {
     id: user.id,
     username: user.username,
+    email: typeof user.email === "string" ? user.email : null,
     role: user.role,
     mustChangePassword: user.mustChangePassword,
     passwordUpdatedAt: user.passwordUpdatedAt,
@@ -61,19 +64,19 @@ const authResult = NextAuth({
   providers: [
     Credentials({
       credentials: {
-        username: { label: "Username", type: "text" },
+        identifier: { label: "Identifier", type: "text" },
         password: { label: "Password", type: "password" },
         portal: { label: "Portal", type: "text" },
       },
       async authorize(credentials) {
-        const username =
-          typeof credentials?.username === "string" ? credentials.username : "";
+        const identifier =
+          typeof credentials?.identifier === "string" ? credentials.identifier : "";
         const password =
           typeof credentials?.password === "string" ? credentials.password : "";
         const portal = credentials?.portal === "admin" ? "admin" : "any";
 
         const user = await authenticateWithCredentials({
-          username,
+          identifier,
           password,
           portal,
         });
@@ -101,6 +104,7 @@ const authResult = NextAuth({
         token.sub = authUser.id ?? token.sub;
         token.name = authUser.username ?? authUser.name ?? token.name;
         token.username = authUser.username;
+        token.email = authUser.email ?? token.email;
         token.role = authUser.role;
         token.mustChangePassword = authUser.mustChangePassword;
         token.passwordUpdatedAt = authUser.passwordUpdatedAt;
@@ -112,6 +116,13 @@ const authResult = NextAuth({
         if (typeof updatedUser.username === "string") {
           token.name = updatedUser.username;
           token.username = updatedUser.username;
+        }
+
+        if (
+          "email" in updatedUser &&
+          (typeof updatedUser.email === "string" || updatedUser.email === null)
+        ) {
+          token.email = updatedUser.email;
         }
 
         if (isUserRole(updatedUser.role)) {
@@ -139,6 +150,8 @@ const authResult = NextAuth({
       sessionUser.name = typeof token.username === "string" ? token.username : sessionUser.name;
       sessionUser.username =
         typeof token.username === "string" ? token.username : sessionUser.username ?? "";
+      sessionUser.email =
+        typeof token.email === "string" || token.email === null ? token.email : sessionUser.email;
       sessionUser.role = isUserRole(token.role) ? token.role : UserRole.SHOOTER;
       sessionUser.mustChangePassword = Boolean(token.mustChangePassword);
       sessionUser.passwordUpdatedAt =
@@ -266,15 +279,16 @@ export async function refreshCurrentUserSession(user: CurrentAuthUser) {
   }
 
   return unstable_update({
-    ...session,
-    user: {
-      ...session.user,
-      id: user.id,
-      name: user.username,
-      username: user.username,
-      role: user.role,
-      mustChangePassword: user.mustChangePassword,
-      passwordUpdatedAt: user.passwordUpdatedAt.toISOString(),
+      ...session,
+      user: {
+        ...session.user,
+        id: user.id,
+        name: user.username,
+        username: user.username,
+        email: user.email,
+        role: user.role,
+        mustChangePassword: user.mustChangePassword,
+        passwordUpdatedAt: user.passwordUpdatedAt.toISOString(),
     } as Session["user"],
   });
 }

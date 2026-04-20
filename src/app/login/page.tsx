@@ -49,10 +49,18 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   }
 
   const error =
-    params.error === "invalid" ? "invalid" : params.error === "missing" ? "missing" : undefined;
+    params.error === "invalid"
+      ? "invalid"
+      : params.error === "missing"
+        ? "missing"
+        : params.error === "pending"
+          ? "pending"
+          : params.error === "rejected"
+            ? "rejected"
+            : undefined;
   const success =
-    params.success === "setup-complete"
-      ? "setup-complete"
+    params.success === "registration-submitted"
+      ? "registration-submitted"
       : params.success === "password-updated"
         ? "password-updated"
         : undefined;
@@ -80,6 +88,11 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
           <Link href="/change-password?mode=request-reset" className="button button--ghost">
             REQUEST RESET
           </Link>
+          {mode !== "admin" ? (
+            <Link href="/register" className="button button--ghost">
+              REGISTER
+            </Link>
+          ) : null}
           {mode === "admin" ? (
             <Link href="/login" className="button button--ghost">
               STANDARD LOGIN

@@ -114,7 +114,6 @@ export default async function ShooterProfilePage({
           joinedAt={profile.createdAt}
           totalEntries={profile.totalEntries}
           drillsShot={profile.drillsShot}
-          bestTime={profile.bestTime}
           lastShotAt={profile.lastShotAt}
         />
 
@@ -143,6 +142,7 @@ export default async function ShooterProfilePage({
         {currentTab === "account" ? (
           <ProfileAccountPanel
             username={profile.username}
+            email={currentShooter.email}
             role={currentShooter.role}
             joinedAt={profile.createdAt}
             passwordUpdatedAt={currentShooter.passwordUpdatedAt}

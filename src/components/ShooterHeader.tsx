@@ -2,7 +2,7 @@ import { SiteHeader } from "@/components/SiteHeader";
 
 type ShooterHeaderProps = {
   authenticated: boolean;
-  active: "leaderboard" | "profile" | "login";
+  active: "leaderboard" | "profile" | "login" | "register";
   adminAuthenticated?: boolean;
 };
 

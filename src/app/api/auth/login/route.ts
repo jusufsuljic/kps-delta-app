@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { AuthError } from "next-auth";
 
 import { signIn } from "@/lib/auth";
-import { normalizeUsername } from "@/lib/validators";
+import { inspectLoginAttempt } from "@/lib/auth-backend";
+import { normalizeEmail, normalizeUsername } from "@/lib/validators";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -27,16 +28,44 @@ function resolveRedirectTarget(result: unknown, fallbackPath: string) {
 
 export async function POST(request: Request) {
   const formData = await request.formData();
-  const username = normalizeUsername(formData.get("username"));
+  const identifierInput =
+    formData.get("mode") === "admin"
+      ? normalizeUsername(formData.get("identifier"))
+      : normalizeEmail(formData.get("identifier"));
   const password =
     typeof formData.get("password") === "string"
       ? String(formData.get("password"))
       : "";
   const mode = formData.get("mode") === "admin" ? "admin" : "shooter";
 
+  const attempt = await inspectLoginAttempt({
+    identifier: identifierInput,
+    password,
+    portal: mode === "admin" ? "admin" : "any",
+  });
+
+  if (attempt.status !== "success") {
+    const search = new URLSearchParams();
+    search.set(
+      "error",
+      attempt.status === "pending"
+        ? "pending"
+        : attempt.status === "rejected"
+          ? "rejected"
+          : "invalid",
+    );
+    if (mode === "admin") {
+      search.set("mode", "admin");
+    }
+
+    return NextResponse.redirect(new URL(`/login?${search.toString()}`, request.url), {
+      status: 303,
+    });
+  }
+
   try {
     const redirectTarget = await signIn("credentials", {
-      username,
+      identifier: identifierInput,
       password,
       portal: mode === "admin" ? "admin" : "any",
       redirect: false,

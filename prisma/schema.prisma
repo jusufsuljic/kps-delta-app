@@ -23,6 +23,12 @@ enum PasswordResetRequestStatus {
   COMPLETED
 }
 
+enum RegistrationRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 model Season {
   id                String    @id @default(cuid())
   seasonName        String
@@ -53,6 +59,10 @@ model User {
   id                            String                 @id @default(cuid())
   username                      String
   usernameNormalized            String                 @unique
+  firstName                     String?
+  lastName                      String?
+  email                         String?                @unique
+  emailNormalized               String?                @unique
   role                          UserRole               @default(SHOOTER)
   passwordHash                  String?
   passwordUpdatedAt             DateTime               @default(now())
@@ -63,6 +73,8 @@ model User {
   issuedSetupCodes              SetupCode[]            @relation("SetupCodesIssuedByUser")
   passwordResetRequests         PasswordResetRequest[] @relation("PasswordResetRequestsForUser")
   reviewedPasswordResetRequests PasswordResetRequest[] @relation("PasswordResetRequestsReviewedByUser")
+  approvedRegistrationRequests  RegistrationRequest[]  @relation("RegistrationRequestsApprovedUser")
+  reviewedRegistrationRequests  RegistrationRequest[]  @relation("RegistrationRequestsReviewedByUser")
 
   @@unique([username])
   @@index([createdAt])
@@ -124,4 +136,26 @@ model PasswordResetRequest {
 
   @@index([userId, status, createdAt])
   @@index([status, createdAt])
+}
+
+model RegistrationRequest {
+  id               String                    @id @default(cuid())
+  firstName        String
+  lastName         String
+  fullNameNormalized String
+  email            String
+  emailNormalized  String                    @unique
+  passwordHash     String
+  status           RegistrationRequestStatus @default(PENDING)
+  reviewerNote     String?
+  createdAt        DateTime                  @default(now())
+  reviewedAt       DateTime?
+  reviewedByUserId String?
+  approvedUserId   String?
+  reviewedBy       User?                     @relation("RegistrationRequestsReviewedByUser", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  approvedUser     User?                     @relation("RegistrationRequestsApprovedUser", fields: [approvedUserId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([fullNameNormalized, status])
+  @@index([approvedUserId])
 }

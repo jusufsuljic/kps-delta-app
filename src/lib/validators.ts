@@ -1,6 +1,8 @@
 const USERNAME_MAX_LENGTH = 48;
+const PERSON_NAME_MAX_LENGTH = 48;
 const SEASON_NAME_MAX_LENGTH = 96;
 const DRILL_NAME_MAX_LENGTH = 96;
+const EMAIL_MAX_LENGTH = 254;
 const PASSWORD_MIN_LENGTH = 8;
 const PASSWORD_MAX_LENGTH = 128;
 const SETUP_CODE_LENGTH = 20;
@@ -20,6 +22,38 @@ export function normalizeUsername(value: FormDataEntryValue | null | undefined) 
 
 export function normalizeUsernameKey(value: string) {
   return normalizeWhitespace(value).toLocaleLowerCase("en-US");
+}
+
+export function normalizePersonName(value: FormDataEntryValue | null | undefined) {
+  return normalizeWhitespace(toStringValue(value));
+}
+
+function latinizeForKey(value: string) {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[đĐ]/g, "d")
+    .replace(/ß/g, "ss");
+}
+
+export function normalizePersonNameKey(value: string) {
+  return latinizeForKey(normalizeWhitespace(value))
+    .toLocaleLowerCase("en-US")
+    .replace(/[^a-z0-9 ]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function buildDisplayName(firstName: string, lastName: string) {
+  return normalizeWhitespace(`${firstName} ${lastName}`);
+}
+
+export function normalizeEmail(value: FormDataEntryValue | null | undefined) {
+  return toStringValue(value).trim();
+}
+
+export function normalizeEmailKey(value: string) {
+  return value.trim().toLocaleLowerCase("en-US");
 }
 
 export function normalizeSeasonName(value: FormDataEntryValue | null | undefined) {
@@ -63,6 +97,30 @@ export function validateUsername(username: string) {
   if (username.length > USERNAME_MAX_LENGTH) {
     return `Username must be ${USERNAME_MAX_LENGTH} characters or fewer.`;
   }
+  return null;
+}
+
+export function validatePersonName(name: string, label = "Name") {
+  if (!name) return `${label} is required.`;
+  if (name.length > PERSON_NAME_MAX_LENGTH) {
+    return `${label} must be ${PERSON_NAME_MAX_LENGTH} characters or fewer.`;
+  }
+  return null;
+}
+
+export function validateEmail(email: string) {
+  if (!email) {
+    return "Email is required.";
+  }
+
+  if (email.length > EMAIL_MAX_LENGTH) {
+    return `Email must be ${EMAIL_MAX_LENGTH} characters or fewer.`;
+  }
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return "Email format is invalid.";
+  }
+
   return null;
 }
 

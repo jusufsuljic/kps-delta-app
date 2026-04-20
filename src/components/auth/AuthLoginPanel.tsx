@@ -2,8 +2,8 @@ type AuthLoginMode = "shooter" | "admin";
 
 type AuthLoginPanelProps = {
   mode: AuthLoginMode;
-  error?: "invalid" | "missing";
-  success?: "setup-complete" | "password-updated";
+  error?: "invalid" | "missing" | "pending" | "rejected";
+  success?: "registration-submitted" | "password-updated";
 };
 
 function getPanelCopy(mode: AuthLoginMode) {
@@ -11,6 +11,8 @@ function getPanelCopy(mode: AuthLoginMode) {
     return {
       title: "Admin Login",
       description: "Use an admin account to access the dashboard.",
+      identifierLabel: "Email or Username",
+      identifierAutoComplete: "username",
       submitLabel: "SIGN IN",
       invalidMessage: "That account does not have dashboard access or the password is incorrect.",
       missingMessage: "Your session is no longer valid. Sign in again.",
@@ -19,16 +21,18 @@ function getPanelCopy(mode: AuthLoginMode) {
 
   return {
     title: "Login",
-    description: "Enter your username and password.",
+    description: "Enter your email and password.",
+    identifierLabel: "Email",
+    identifierAutoComplete: "email",
     submitLabel: "SIGN IN",
-    invalidMessage: "Invalid username or password.",
+    invalidMessage: "Invalid email or password.",
     missingMessage: "Your session is no longer valid. Sign in again.",
   };
 }
 
 function getSuccessMessage(success?: AuthLoginPanelProps["success"]) {
-  if (success === "setup-complete") {
-    return "Account setup is complete. Sign in with the password you just created.";
+  if (success === "registration-submitted") {
+    return "Your application will be reviewed soon.";
   }
 
   if (success === "password-updated") {
@@ -49,6 +53,10 @@ export function AuthLoginPanel({
       ? copy.invalidMessage
       : error === "missing"
         ? copy.missingMessage
+        : error === "pending"
+          ? "Your application will be reviewed soon."
+          : error === "rejected"
+            ? "Please contact Delta administrator."
         : null;
   const successMessage = getSuccessMessage(success);
 
@@ -66,12 +74,12 @@ export function AuthLoginPanel({
         <input type="hidden" name="mode" value={mode} />
 
         <label className="field">
-          <span className="field__label">Username</span>
+          <span className="field__label">{copy.identifierLabel}</span>
           <input
             className="text-input"
-            name="username"
+            name="identifier"
             type="text"
-            autoComplete="username"
+            autoComplete={copy.identifierAutoComplete}
             required
           />
         </label>
