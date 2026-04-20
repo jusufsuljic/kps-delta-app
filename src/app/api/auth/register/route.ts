@@ -1,16 +1,12 @@
-import { NextResponse } from "next/server";
-
 import { registerUserApplication, AuthFlowError } from "@/lib/auth-backend";
 import { readStringBody } from "@/lib/api-input";
+import { redirectToPath } from "@/lib/redirect-response";
 import { normalizeEmail, normalizePersonName, validatePassword } from "@/lib/validators";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-function redirectToRegister(
-  request: Request,
-  params: Record<string, string | null | undefined>,
-) {
+function redirectToRegister(params: Record<string, string | null | undefined>) {
   const search = new URLSearchParams();
 
   for (const [key, value] of Object.entries(params)) {
@@ -20,9 +16,7 @@ function redirectToRegister(
   }
 
   const query = search.toString();
-  return NextResponse.redirect(new URL(query ? `/register?${query}` : "/register", request.url), {
-    status: 303,
-  });
+  return redirectToPath(query ? `/register?${query}` : "/register");
 }
 
 export async function POST(request: Request) {
@@ -34,16 +28,16 @@ export async function POST(request: Request) {
   const confirmPassword = body.confirmPassword ?? "";
 
   if (!firstName || !lastName || !email || !password || !confirmPassword) {
-    return redirectToRegister(request, { error: "missing" });
+    return redirectToRegister({ error: "missing" });
   }
 
   if (password !== confirmPassword) {
-    return redirectToRegister(request, { error: "mismatch" });
+    return redirectToRegister({ error: "mismatch" });
   }
 
   const passwordError = validatePassword(password);
   if (passwordError) {
-    return redirectToRegister(request, { error: "weak" });
+    return redirectToRegister({ error: "weak" });
   }
 
   try {
@@ -54,12 +48,10 @@ export async function POST(request: Request) {
       password,
     });
 
-    return NextResponse.redirect(new URL("/login?success=registration-submitted", request.url), {
-      status: 303,
-    });
+    return redirectToPath("/login?success=registration-submitted");
   } catch (error) {
     if (error instanceof AuthFlowError) {
-      return redirectToRegister(request, {
+      return redirectToRegister({
         error:
           error.code === "account_exists"
             ? "exists"

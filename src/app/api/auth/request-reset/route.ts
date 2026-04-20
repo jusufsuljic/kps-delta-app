@@ -1,14 +1,13 @@
-import { NextResponse } from "next/server";
-
 import { readStringBody } from "@/lib/api-input";
 import { createPasswordResetRequest } from "@/lib/auth-backend";
 import { buildChangePasswordHref } from "@/lib/auth-links";
+import { redirectToPath } from "@/lib/redirect-response";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-function redirectToChangePassword(request: Request, href: string) {
-  return NextResponse.redirect(new URL(href, request.url), { status: 303 });
+function redirectToChangePassword(href: string) {
+  return redirectToPath(href);
 }
 
 export async function POST(request: Request) {
@@ -17,7 +16,6 @@ export async function POST(request: Request) {
 
   if (!email.trim()) {
     return redirectToChangePassword(
-      request,
       buildChangePasswordHref({
         mode: "request-reset",
         error: "missing",
@@ -28,7 +26,6 @@ export async function POST(request: Request) {
   await createPasswordResetRequest(email);
 
   return redirectToChangePassword(
-    request,
     buildChangePasswordHref({
       mode: "request-reset",
       email,
