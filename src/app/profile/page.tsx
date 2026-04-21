@@ -125,6 +125,7 @@ export default async function ShooterProfilePage({
               sort: profile.historySort,
               drillId: profile.selectedDrill?.drillId ?? null,
             })}
+            scroll={false}
             className={`leaderboard-pill ${
               currentTab === "performance" ? "leaderboard-pill--active" : ""
             }`}
@@ -133,6 +134,7 @@ export default async function ShooterProfilePage({
           </Link>
           <Link
             href={buildProfileHref({ tab: "account" })}
+            scroll={false}
             className={`leaderboard-pill ${currentTab === "account" ? "leaderboard-pill--active" : ""}`}
           >
             ACCOUNT
@@ -178,6 +180,7 @@ export default async function ShooterProfilePage({
                           sort: profile.historySort,
                           drillId: drill.drillId,
                         })}
+                        scroll={false}
                         className={`leaderboard-pill ${
                           profile.selectedDrill?.drillId === drill.drillId
                             ? "leaderboard-pill--active"

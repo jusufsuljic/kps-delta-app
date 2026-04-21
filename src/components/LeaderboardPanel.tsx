@@ -66,6 +66,7 @@ export function LeaderboardPanel({
               <Link
                 key={board.key}
                 href={getBoardHref(path, board.key)}
+                scroll={false}
                 className={`leaderboard-pill ${
                   activeBoard?.key === board.key ? "leaderboard-pill--active" : ""
                 }`}

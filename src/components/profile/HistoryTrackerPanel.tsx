@@ -30,7 +30,12 @@ export function HistoryTrackerPanel({
         <span className="panel-note">{entries.length} entries shown</span>
       </div>
 
-      <form action="/profile" method="get" className="profile-filter-bar">
+      <form
+        action="/profile"
+        method="get"
+        className="profile-filter-bar"
+        data-preserve-scroll="true"
+      >
         {selectedDrillId ? <input type="hidden" name="drill" value={selectedDrillId} /> : null}
 
         <label className="field">

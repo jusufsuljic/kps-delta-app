@@ -502,6 +502,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
             <Link
               key={tab}
               href={buildDashboardHref(tab)}
+              scroll={false}
               className={`dashboard-tab ${currentTab === tab ? "dashboard-tab--active" : ""}`}
             >
               {tab.toUpperCase()}
@@ -516,7 +517,11 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                 <h2>Season Control</h2>
               </div>
 
-              <form action={createSeasonAction} className="form-grid form-grid--single">
+              <form
+                action={createSeasonAction}
+                className="form-grid form-grid--single"
+                data-preserve-scroll="true"
+              >
                 <label className="field">
                   <span className="field__label">Create New Season</span>
                   <input
@@ -539,7 +544,11 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
               <div className="entity-list">
                 {seasons.map((season) => (
                   <div key={season.id} className="entity-card">
-                    <form action={updateSeasonAction} className="inline-form">
+                    <form
+                      action={updateSeasonAction}
+                      className="inline-form"
+                      data-preserve-scroll="true"
+                    >
                       <input type="hidden" name="seasonId" value={season.id} />
                       <label className="field field--grow">
                         <span className="field__label">
@@ -566,7 +575,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                     <div className="button-row">
                       {!season.endedAt ? (
                         <>
-                          <form action={finishSeasonAction}>
+                          <form action={finishSeasonAction} data-preserve-scroll="true">
                             <input type="hidden" name="seasonId" value={season.id} />
                             <button type="submit" className="button button--secondary">
                               FINISH SEASON
@@ -575,7 +584,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                         </>
                       ) : null}
 
-                      <form action={deleteSeasonAction}>
+                      <form action={deleteSeasonAction} data-preserve-scroll="true">
                         <input type="hidden" name="seasonId" value={season.id} />
                         <button type="submit" className="button button--ghost">
                           DELETE
@@ -594,7 +603,11 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
               {activeSeason ? (
                 <>
-                  <form action={createDrillAction} className="form-grid form-grid--single">
+                  <form
+                    action={createDrillAction}
+                    className="form-grid form-grid--single"
+                    data-preserve-scroll="true"
+                  >
                     <input type="hidden" name="seasonId" value={activeSeason.id} />
                     <label className="field">
                       <span className="field__label">Add Drill To {activeSeason.seasonName}</span>
@@ -614,7 +627,11 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                     {activeSeason.drills.length > 0 ? (
                       activeSeason.drills.map((drill) => (
                         <div key={drill.id} className="entity-card">
-                          <form action={updateDrillAction} className="inline-form">
+                          <form
+                            action={updateDrillAction}
+                            className="inline-form"
+                            data-preserve-scroll="true"
+                          >
                             <input type="hidden" name="drillId" value={drill.id} />
                             <label className="field field--grow">
                               <span className="field__label">Drill Name</span>
@@ -630,7 +647,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                             </button>
                           </form>
 
-                          <form action={deleteDrillAction}>
+                          <form action={deleteDrillAction} data-preserve-scroll="true">
                             <input type="hidden" name="drillId" value={drill.id} />
                             <button type="submit" className="button button--danger">
                               DELETE
@@ -657,7 +674,12 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                 <h2>Search Shooters</h2>
               </div>
 
-              <form action="/admin/dashboard" method="get" className="form-grid form-grid--single">
+              <form
+                action="/admin/dashboard"
+                method="get"
+                className="form-grid form-grid--single"
+                data-preserve-scroll="true"
+              >
                 <input type="hidden" name="tab" value="shooters" />
                 <label className="field">
                   <span className="field__label">Search By Username</span>
@@ -673,7 +695,11 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                   <button type="submit" className="button button--primary">
                     SEARCH
                   </button>
-                  <Link href={buildDashboardHref("shooters")} className="button button--ghost">
+                  <Link
+                    href={buildDashboardHref("shooters")}
+                    scroll={false}
+                    className="button button--ghost"
+                  >
                     CLEAR
                   </Link>
                 </div>
@@ -692,6 +718,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                   <h2>{selectedShooter.username}</h2>
                   <Link
                     href={buildDashboardHref("shooters", { q: shooterQuery || null })}
+                    scroll={false}
                     className="button button--ghost"
                   >
                     CLOSE SHOOTER
@@ -804,6 +831,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                           q: shooterQuery || null,
                           shooter: user.id,
                         })}
+                        scroll={false}
                         className="button button--ghost"
                       >
                         VIEW SHOOTER
@@ -826,7 +854,12 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                   <h2>Search Accounts</h2>
                 </div>
 
-                <form action="/admin/dashboard" method="get" className="form-grid form-grid--single">
+                <form
+                  action="/admin/dashboard"
+                  method="get"
+                  className="form-grid form-grid--single"
+                  data-preserve-scroll="true"
+                >
                   <input type="hidden" name="tab" value="accounts" />
                   <label className="field">
                     <span className="field__label">Search By Name Or Email</span>
@@ -842,7 +875,11 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                     <button type="submit" className="button button--primary">
                       SEARCH
                     </button>
-                    <Link href={buildDashboardHref("accounts")} className="button button--ghost">
+                    <Link
+                      href={buildDashboardHref("accounts")}
+                      scroll={false}
+                      className="button button--ghost"
+                    >
                       CLEAR
                     </Link>
                   </div>
@@ -921,6 +958,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                             accountQ: accountQuery || null,
                             account: user.id,
                           })}
+                          scroll={false}
                           className="button button--ghost"
                         >
                           MANAGE ACCOUNT
@@ -940,6 +978,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                   <h2>{selectedAccount.username}</h2>
                   <Link
                     href={buildDashboardHref("accounts", { accountQ: accountQuery || null })}
+                    scroll={false}
                     className="button button--ghost"
                   >
                     CLOSE ACCOUNT
@@ -1007,7 +1046,11 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                       </span>
                     </div>
 
-                    <form action={updateUserAction} className="form-grid">
+                    <form
+                      action={updateUserAction}
+                      className="form-grid"
+                      data-preserve-scroll="true"
+                    >
                       <input type="hidden" name="userId" value={selectedAccount.id} />
                       <label className="field">
                         <span className="field__label">Username</span>
@@ -1124,7 +1167,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                       history will follow the current delete behavior from the backend action.
                     </p>
                     <div className="button-row">
-                      <form action={deleteUserAction}>
+                      <form action={deleteUserAction} data-preserve-scroll="true">
                         <input type="hidden" name="userId" value={selectedAccount.id} />
                         <button type="submit" className="button button--danger">
                           DELETE ACCOUNT
@@ -1165,13 +1208,13 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                       </div>
 
                       <div className="button-row">
-                        <form action={approveRegistrationRequestAction}>
+                        <form action={approveRegistrationRequestAction} data-preserve-scroll="true">
                           <input type="hidden" name="requestId" value={request.id} />
                           <button type="submit" className="button button--primary">
                             APPROVE
                           </button>
                         </form>
-                        <form action={rejectRegistrationRequestAction}>
+                        <form action={rejectRegistrationRequestAction} data-preserve-scroll="true">
                           <input type="hidden" name="requestId" value={request.id} />
                           <button type="submit" className="button button--ghost">
                             REJECT
@@ -1213,7 +1256,11 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
               {activeSeason && activeSeason.drills.length > 0 ? (
                 <>
-                  <form action={createEntryAction} className="form-grid">
+                  <form
+                    action={createEntryAction}
+                    className="form-grid"
+                    data-preserve-scroll="true"
+                  >
                     <input type="hidden" name="seasonId" value={activeSeason.id} />
                     <label className="field field--span-2">
                       <span className="field__label">Shooter</span>
@@ -1278,7 +1325,11 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
               <div className="entity-list entity-list--scroll">
                 {recentEntries.map((entry) => (
                   <div key={entry.id} className="entity-card">
-                    <form action={updateEntryAction} className="entry-form">
+                    <form
+                      action={updateEntryAction}
+                      className="entry-form"
+                      data-preserve-scroll="true"
+                    >
                       <input type="hidden" name="entryId" value={entry.id} />
 
                       <label className="field">
@@ -1332,7 +1383,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                       <span>{formatDateTime(entry.createdAt)}</span>
                     </div>
 
-                    <form action={deleteEntryAction}>
+                      <form action={deleteEntryAction} data-preserve-scroll="true">
                       <input type="hidden" name="entryId" value={entry.id} />
                       <button type="submit" className="button button--danger">
                         DELETE ENTRY
@@ -1346,7 +1397,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
             <article className="panel">
               <div className="panel-header">
                 <h2>Leaderboard Publication</h2>
-                <form action={publishLeaderboardAction}>
+                <form action={publishLeaderboardAction} data-preserve-scroll="true">
                   <input type="hidden" name="seasonId" value={activeSeason?.id ?? ""} />
                   <button
                     type="submit"
