@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 import { Mohave } from "next/font/google";
+import { Suspense } from "react";
+import { LoadingBar } from "@/components/LoadingBar";
+import { ScrollPreserver } from "@/components/ScrollPreserver";
 import "./globals.css";
 
 const mohave = Mohave({
@@ -28,7 +31,15 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={mohave.variable}>
-      <body>{children}</body>
+      <body>
+        <Suspense fallback={null}>
+          <LoadingBar />
+        </Suspense>
+        <Suspense fallback={null}>
+          <ScrollPreserver />
+        </Suspense>
+        {children}
+      </body>
     </html>
   );
 }
