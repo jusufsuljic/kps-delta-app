@@ -99,7 +99,7 @@ export default async function ShooterProfilePage({
             ) : (
               <>
                 <span>Last shot: {formatDateTime(profile.lastShotAt)}</span>
-                <span>Best time: {profile.bestTime ? formatSeconds(profile.bestTime) : "--"}</span>
+                {/* <span>Best time: {profile.bestTime ? formatSeconds(profile.bestTime) : "--"}</span> */}
               </>
             )}
           </div>

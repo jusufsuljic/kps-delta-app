@@ -447,7 +447,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
       <main className="site-shell page-stack">
         <section className="page-bar">
-          <h1 className="page-title">Dashboard</h1>
+          <h1 className="page-title">DASHBOARD</h1>
         </section>
 
         {notice ? <p className="success-banner">{notice}</p> : null}
