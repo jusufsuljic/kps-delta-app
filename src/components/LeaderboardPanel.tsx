@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import Link from "next/link";
 
 import { formatSeconds } from "@/lib/format";
@@ -77,29 +78,35 @@ export function LeaderboardPanel({
           </div>
 
           <div className="leaderboard-scroll">
-            {activeBoard && activeBoard.rows.length > 0 ? (
-              activeBoard.rows.map((row) => (
-                <div className="leaderboard-row" key={`${activeBoard.key}-${row.userId}`}>
-                  <div className="leaderboard-row__identity">
-                    {getRankBadge(row.rank)}
-                    <span
-                      className="avatar-badge"
-                      style={{ background: `hsl(${row.avatarHue} 62% 26%)` }}
-                    >
-                      {row.initials}
-                    </span>
-                    <span className="leaderboard-row__name">{row.username}</span>
+            <div className="leaderboard-list" key={activeBoard?.key ?? "empty"}>
+              {activeBoard && activeBoard.rows.length > 0 ? (
+                activeBoard.rows.map((row, index) => (
+                  <div
+                    className="leaderboard-row"
+                    key={`${activeBoard.key}-${row.userId}`}
+                    style={{ "--row-index": Math.min(index, 11) } as CSSProperties}
+                  >
+                    <div className="leaderboard-row__identity">
+                      {getRankBadge(row.rank)}
+                      <span
+                        className="avatar-badge"
+                        style={{ background: `hsl(${row.avatarHue} 62% 26%)` }}
+                      >
+                        {row.initials}
+                      </span>
+                      <span className="leaderboard-row__name">{row.username}</span>
+                    </div>
+                    <span className="leaderboard-row__time">{formatSeconds(row.time)}</span>
                   </div>
-                  <span className="leaderboard-row__time">{formatSeconds(row.time)}</span>
+                ))
+              ) : (
+                <div className="empty-state">
+                  {pendingPublication
+                    ? "No published leaderboard is visible yet."
+                    : "No results have been entered for this board yet."}
                 </div>
-              ))
-            ) : (
-              <div className="empty-state">
-                {pendingPublication
-                  ? "No published leaderboard is visible yet."
-                  : "No results have been entered for this board yet."}
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </>
       ) : (
